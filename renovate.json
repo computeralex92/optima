@@ -8,7 +8,6 @@
     "schedule:weekly"
   ],
   "labels": ["dependencies"],
-  "osvVulnerabilityAlerts": true,
   "packageRules": [
     {
       "description": "One PR for all Go module bumps",
