@@ -48,8 +48,9 @@ Make targets: `build`, `test`, `run`, `lint`, `docker`
 2. **Linux images are built with an OCI engine.** cgo plus static HiGHS means no plain
    `CGO_ENABLED=0` cross-build; the `Dockerfile` builds Linux targets in a
    `golang:1.27-bookworm` builder that installs `g++` and `zlib1g-dev` (gohighs links
-   `-lstdc++ … -lz`). The runtime stage is `debian:bookworm-slim` because HiGHS needs
-   glibc and libstdc++ — not `scratch`.
+   `-lstdc++ … -lz`). The binary is linked fully static (`-extldflags "-static"`), so
+   the runtime stage is a bare `scratch` image: no libc, libstdc++ or zlib at runtime,
+   the whole image is just the ~16 MB binary.
 
 ## Validator divergences from `openapi.yaml`
 
