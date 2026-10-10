@@ -2,6 +2,7 @@ package optimizer
 
 import (
 	"math"
+	"strconv"
 	"time"
 
 	"github.com/alex/optimizer-v2/internal/settings"
@@ -22,13 +23,11 @@ const safetyTol = 1e-4
 
 // Solve is the package entrypoint used by the API layer. The caller validates
 // the raw Input; Solve only normalizes it (R5), builds the model and runs the
-// cascade.
+// cascade. It is a thin wrapper over SolveLogged, which also returns the
+// per-request observability metadata.
 func Solve(in Input, s settings.Settings) (Result, error) {
-	p, err := in.Normalize()
-	if err != nil {
-		return Result{}, err
-	}
-	return buildModel(p).run(s)
+	res, _, err := SolveLogged(in, "", s)
+	return res, err
 }
 
 // run drives the lexicographic cascade on one built model. All stages share a
@@ -41,8 +40,12 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 		deadline = time.Now().Add(time.Duration(*s.TimeLimit * float64(time.Second)))
 	}
 
+	mo.stages = make(map[string]float64, 4)
+
 	// Stage A: cost (T1, spec 5.3). Always runs.
+	t0 := time.Now()
 	sol, err := mo.stage(mo.costCoeffs(), costGap(mo.prob, s), deadline, s)
+	mo.stages["cost"] = time.Since(t0).Seconds()
 	if err != nil {
 		return Result{}, err
 	}
@@ -71,7 +74,9 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 	// each achieved peak is then pinned via ColUpper, so stage C's smoothing can
 	// flatten the profile below the peak but can never raise it (spec 6/7).
 	if hasNonzero(mo.peakRow) {
+		t0 := time.Now()
 		bsol, err := mo.stage(mo.peakCoeffs(), 0, deadline, s)
+		mo.stages["peak"] = time.Since(t0).Seconds()
 		if err != nil {
 			return Result{}, err
 		}
@@ -91,7 +96,9 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 	// bounds it, and a worse or unsolved stop leaves the cost-stage solution in
 	// place, and with it the cost stage's deciding status.
 	if hasNonzero(mo.prefRow) {
+		t0 := time.Now()
 		psol, err := mo.stage(mo.prefCoeffs(), 0, deadline, s)
+		mo.stages["preference"] = time.Since(t0).Seconds()
 		if err != nil {
 			return Result{}, err
 		}
@@ -107,6 +114,7 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 		// recorded value is a seam for the regression in solve_test.go.
 		pv := objective(mo.prefRow, sol)
 		mo.prefAfterC = &pv
+		mo.prefSummary = strconv.FormatFloat(pv, 'g', -1, 64)
 		mo.pinLower(mo.prefRow, pv)
 	}
 
@@ -115,7 +123,9 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 	// retained, the preference bound. The objective is the integral count of charge
 	// starts, so gap 0 asks for proven optimality and nothing is normalized away.
 	if hasNonzero(mo.startRow) {
+		t0 := time.Now()
 		dsol, err := mo.stage(mo.startCoeffs(), 0, deadline, s)
+		mo.stages["continuity"] = time.Since(t0).Seconds()
 		if err != nil {
 			return Result{}, err
 		}
@@ -126,6 +136,7 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 			sol = dsol
 			status = decidingStatus(status, dsol)
 		}
+		mo.contSummary = "starts=" + strconv.Itoa(mo.countStarts(sol))
 	}
 
 	// Final safety pass (spec 6.1): never report a schedule that breaks the model.

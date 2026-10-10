@@ -80,6 +80,11 @@ type model struct {
 	// when the preference stage runs. It is a seam for the in-package regression
 	// that stage D cannot trade that value away; nil when no preference stage ran.
 	prefAfterC *float64
+
+	// Observability (spec 9), filled by run and surfaced through SolveLogged.
+	stages      map[string]float64
+	prefSummary string
+	contSummary string
 }
 
 // buildModel adds every variable and structural constraint from spec 5.2. Stage
