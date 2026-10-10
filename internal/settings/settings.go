@@ -10,8 +10,8 @@ import (
 // Settings holds the runtime configuration read from the environment.
 type Settings struct {
 	TimeLimit        *float64 // nil = solve out
-	GapAbs           *float64 // default 0.01
-	GapShare         float64  // default 0.0025
+	GapAbs           *float64 // nil = proven optimality (default; no MIP gap)
+	GapShare         float64  // default 0.0
 	PreferenceBudget float64  // default 0.0
 	NumThreads       *int     // nil = HiGHS default
 	LogSubject       bool     // default false
@@ -20,14 +20,13 @@ type Settings struct {
 
 // Load reads OPTIMIZER_* from the environment and applies defaults.
 // Unset or unparseable values leave the field at its default; optional
-// fields stay nil when unset. OPTIMIZER_PROBE_SECONDS is intentionally
-// not read: there is no probe stage.
+// fields stay nil when unset. The MIP gap is off by default: the cost stage
+// solves to proven optimality. Set OPTIMIZER_GAP_ABS (and optionally
+// OPTIMIZER_GAP_SHARE) to trade optimality for speed. Upstream defaults to
+// 0.01 / 0.0025; we deliberately do not. OPTIMIZER_PROBE_SECONDS is
+// intentionally not read: there is no probe stage.
 func Load() Settings {
-	gapAbs := 0.01
-	s := Settings{
-		GapAbs:   &gapAbs,
-		GapShare: 0.0025,
-	}
+	s := Settings{}
 	if v, ok := floatEnv("OPTIMIZER_TIME_LIMIT"); ok {
 		s.TimeLimit = &v
 	}

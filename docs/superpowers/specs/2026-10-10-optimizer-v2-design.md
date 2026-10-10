@@ -241,8 +241,8 @@ gap tolerance is meaningful.
 Prefix `OPTIMIZER_`, matching the original names where they still apply:
 
 - `OPTIMIZER_TIME_LIMIT` (float seconds, unset solves out)
-- `OPTIMIZER_GAP_ABS` (currency, default 0.01)
-- `OPTIMIZER_GAP_SHARE` (default 0.0025)
+- `OPTIMIZER_GAP_ABS` (currency, default: unset, which solves the cost stage to proven optimality; set it to trade optimality for speed. Upstream defaults to 0.01)
+- `OPTIMIZER_GAP_SHARE` (default 0.0; only applied when `GAP_ABS` is set. Upstream defaults to 0.0025)
 - `OPTIMIZER_PREFERENCE_BUDGET` (currency, default 0.0, keeps strategies cost neutral)
 - `OPTIMIZER_NUM_THREADS`
 - `OPTIMIZER_LOG_SUBJECT` (bool, default false)
