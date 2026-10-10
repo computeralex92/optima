@@ -46,6 +46,9 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	// gohighs' HasSolution() is true on TimeLimit/IterationLimit even with no MIP
+	// incumbent, so a no-incumbent stop can look Feasible; the safety pass below is
+	// the net. A full fix needs primal_solution_status, absent in this binding.
 	if sol == nil || !sol.HasSolution() {
 		st := highs.ModelStatusNotSet
 		if sol != nil {
@@ -61,10 +64,17 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 	// 8-10 populate their rows; until then the cascade is cost-only.
 
 	// Final safety pass (spec 6.1): never report a schedule that breaks the model.
+	return mo.finalize(sol), nil
+}
+
+// finalize applies the final status decision to the chosen solution: the safety
+// pass downgrades a schedule that breaks the model to Not Solved, otherwise the
+// HiGHS status is mapped.
+func (mo *model) finalize(sol *highs.Solution) Result {
 	if !mo.safetyCheck(sol) {
-		return mo.assemble(nil, "Not Solved"), nil
+		return mo.assemble(nil, "Not Solved")
 	}
-	return mo.assemble(sol, mapStatus(sol.Status, true)), nil
+	return mo.assemble(sol, mapStatus(sol.Status, true))
 }
 
 // stage sets one stage's objective and solves it within the shared deadline.
@@ -155,7 +165,10 @@ func (mo *model) pinLower(row []coef, value float64) {
 func mapStatus(st highs.ModelStatus, hasSolution bool) string {
 	switch st {
 	case highs.ModelStatusOptimal:
-		return "Optimal"
+		if hasSolution {
+			return "Optimal"
+		}
+		return "Not Solved"
 	case highs.ModelStatusTimeLimit, highs.ModelStatusIterationLimit,
 		highs.ModelStatusObjectiveBound, highs.ModelStatusObjectiveTarget:
 		if hasSolution {

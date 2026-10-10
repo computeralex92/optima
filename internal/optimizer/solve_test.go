@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/alex/optimizer-v2/internal/settings"
+	"github.com/bartolsthoorn/gohighs/highs"
 )
 
 // caseFile is the test_cases JSON wrapper: the raw request plus the golden
@@ -95,4 +96,79 @@ func TestOvershootSeriesPresence(t *testing.T) {
 				len(got.GridExportOvershoot), len(in.Series.GT))
 		}
 	})
+}
+
+// TestMapStatus covers every status mapping in spec 6.1, including the guard that
+// Optimal is never reported without a solution.
+func TestMapStatus(t *testing.T) {
+	cases := []struct {
+		name string
+		st   highs.ModelStatus
+		has  bool
+		want string
+	}{
+		{"optimal with solution", highs.ModelStatusOptimal, true, "Optimal"},
+		{"optimal without solution", highs.ModelStatusOptimal, false, "Not Solved"},
+		{"time limit with solution", highs.ModelStatusTimeLimit, true, "Feasible"},
+		{"time limit without solution", highs.ModelStatusTimeLimit, false, "Not Solved"},
+		{"iteration limit with solution", highs.ModelStatusIterationLimit, true, "Feasible"},
+		{"iteration limit without solution", highs.ModelStatusIterationLimit, false, "Not Solved"},
+		{"objective bound with solution", highs.ModelStatusObjectiveBound, true, "Feasible"},
+		{"objective bound without solution", highs.ModelStatusObjectiveBound, false, "Not Solved"},
+		{"objective target with solution", highs.ModelStatusObjectiveTarget, true, "Feasible"},
+		{"objective target without solution", highs.ModelStatusObjectiveTarget, false, "Not Solved"},
+		{"infeasible", highs.ModelStatusInfeasible, false, "Infeasible"},
+		{"infeasible with solution", highs.ModelStatusInfeasible, true, "Infeasible"},
+		{"unbounded or infeasible", highs.ModelStatusUnboundedOrInfeasible, false, "Infeasible"},
+		{"unbounded", highs.ModelStatusUnbounded, true, "Unbounded"},
+		{"not set", highs.ModelStatusNotSet, false, "Not Solved"},
+		{"unknown", highs.ModelStatusUnknown, false, "Not Solved"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mapStatus(tc.st, tc.has); got != tc.want {
+				t.Fatalf("mapStatus(%s, %v) = %q, want %q", tc.st, tc.has, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSafetyPassDowngradesBrokenSchedule drives the final status decision: a valid
+// solve is reported Optimal, while a solution whose balance row is violated is
+// downgraded to Not Solved with an empty payload.
+func TestSafetyPassDowngradesBrokenSchedule(t *testing.T) {
+	mo := buildModel(toyGoalProblem())
+	mo.m.ColCosts = mo.costCoeffs()
+	sol, err := mo.m.Solve(
+		highs.WithOutput(false),
+		highs.WithPresolve("on"),
+		highs.WithMIPRelGap(0),
+		highs.WithMIPAbsGap(0),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mo.safetyCheck(sol) {
+		t.Fatal("safety pass rejected a valid schedule")
+	}
+	if got := mo.finalize(sol).Status; got != "Optimal" {
+		t.Fatalf("valid schedule status = %q, want Optimal", got)
+	}
+
+	// Break the energy balance (spec 5.2.1) by inflating grid import at step 0.
+	broken := &highs.Solution{
+		Status:    sol.Status,
+		ColValues: append([]float64(nil), sol.ColValues...),
+	}
+	broken.ColValues[mo.n[0]] += 1000
+	if mo.safetyCheck(broken) {
+		t.Fatal("safety pass accepted a schedule that breaks the balance rows")
+	}
+	res := mo.finalize(broken)
+	if res.Status != "Not Solved" {
+		t.Fatalf("broken schedule status = %q, want Not Solved", res.Status)
+	}
+	if res.ObjectiveValue != nil {
+		t.Fatal("downgraded result must carry a nil objective")
+	}
 }
