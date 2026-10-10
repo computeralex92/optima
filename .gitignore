@@ -1,3 +1,4 @@
 /bin/
+/optimizer
 *.log
 slow-requests.jsonl
