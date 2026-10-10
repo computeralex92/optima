@@ -64,6 +64,26 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 	// Pin the achieved cost so later stages cannot trade it away.
 	mo.pinLower(mo.costRow, objective(mo.costRow, sol))
 
+	// Stage B: peak (T2, spec 5.3). Runs when a peak strategy is active (peakRow
+	// nonzero), under the cost bound, at gap 0. Maximizing the negated peak row
+	// (peakRow carries -1 on the active peak vars) minimizes the sum of the active
+	// horizon peaks, levelling the maximum. Its solution becomes the incumbent and
+	// each achieved peak is then pinned via ColUpper, so stage C's smoothing can
+	// flatten the profile below the peak but can never raise it (spec 6/7).
+	if hasNonzero(mo.peakRow) {
+		bsol, err := mo.stage(mo.peakCoeffs(), 0, deadline, s)
+		if err != nil {
+			return Result{}, err
+		}
+		if bsol != nil && bsol.HasSolution() {
+			sol = bsol
+			status = decidingStatus(status, bsol)
+			for _, side := range mo.peakSides {
+				mo.m.ColUpper[mo.peakVar(side)] = bsol.Value(mo.peakVar(side)) + pinEps
+			}
+		}
+	}
+
 	// Stage C: preference (T3, spec 5.3). Runs only when some T3 term is actually
 	// active (a nonzero preference coefficient), under the cost bound, at gap 0
 	// (proven-optimal tie break). The objective is normalized to unit magnitude so
@@ -89,9 +109,6 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 		mo.prefAfterC = &pv
 		mo.pinLower(mo.prefRow, pv)
 	}
-
-	// Stage B (peak) runs here once Task 10 populates peakRow; it retains through
-	// the same deciding-status rule.
 
 	// Stage D: continuity (T4, spec 5.3). Runs when a c_min > 0 battery exists
 	// (startRow is nonzero), under the cost bound and, when the preference stage
@@ -173,6 +190,18 @@ func decidingStatus(prev highs.ModelStatus, retained *highs.Solution) highs.Mode
 		return retained.Status
 	}
 	return prev
+}
+
+// peakCoeffs returns the T2 peak objective as a dense coefficient vector of length
+// NumVars. peakRow carries -1 on every active peak variable (the model is a
+// maximize model), so maximizing it minimizes the sum of the active horizon peaks.
+// No normalization is applied: the coefficients are already unit magnitude.
+func (mo *model) peakCoeffs() []float64 {
+	costs := make([]float64, mo.m.NumVars())
+	for _, c := range mo.peakRow {
+		costs[c.col] += c.val
+	}
+	return costs
 }
 
 // prefCoeffs returns the T3 preference objective as a dense coefficient vector of

@@ -54,6 +54,134 @@ func TestSolve024CostObjective(t *testing.T) {
 	}
 }
 
+// TestSolve024PeakFlat is the Task 10 smoothing known answer: case 024 is
+// attenuate_demand_peaks over a flat, PV-less load, so the active import side must
+// end up flat (the dev[t] roughness term) at the minimal horizon peak. The flat
+// profile is what the peak stage plus smoothing produce; the golden file has this
+// exact constant.
+func TestSolve024PeakFlat(t *testing.T) {
+	got, err := Solve(loadCase(t, "../../test_cases/024-attenuate-demand-peaks.json"), settings.Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "Optimal" {
+		t.Fatalf("status %s", got.Status)
+	}
+	if spread := maxFloat(got.GridImport) - minFloat(got.GridImport); spread > 1 {
+		t.Fatalf("grid_import spread %.4f, want <= 1; series %v", spread, got.GridImport)
+	}
+	if peak := maxFloat(got.GridImport); math.Abs(peak-1052.6316) > 1e-2 {
+		t.Fatalf("import peak %.4f, want golden 1052.6316", peak)
+	}
+}
+
+// TestSolvePeakActivePeakMinimized checks the remaining attenuate_* goldens: the
+// active side's horizon maximum must sit at the golden minimum. 025 (feed-in) and
+// 026 (both sides) are forced non-flat by the feed-in shape, so peak minimality,
+// not flatness, is the property to lock.
+func TestSolvePeakActivePeakMinimized(t *testing.T) {
+	cases := []struct {
+		name             string
+		path             string
+		impPeak, expPeak float64
+	}{
+		{"025 feedin peaks", "../../test_cases/025-attenuate-feedin-peaks.json", 0, 3894.7368},
+		{"026 grid peaks", "../../test_cases/026-attenuate-grid-peaks.json", 1157.8947, 4000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Solve(loadCase(t, tc.path), settings.Settings{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Status != "Optimal" {
+				t.Fatalf("status %s", got.Status)
+			}
+			if peak := maxFloat(got.GridImport); math.Abs(peak-tc.impPeak) > 1e-2 {
+				t.Fatalf("import peak %.4f, want %.4f; series %v", peak, tc.impPeak, got.GridImport)
+			}
+			if peak := maxFloat(got.GridExport); math.Abs(peak-tc.expPeak) > 1e-2 {
+				t.Fatalf("export peak %.4f, want %.4f; series %v", peak, tc.expPeak, got.GridExport)
+			}
+		})
+	}
+}
+
+// peakPriorityInput is an attenuate_demand_peaks request whose cost optimum is
+// degenerate in the charging schedule (flat 0.3 price, no load) and whose only
+// non-peak T3 term is c_priority > 0. c_priority prefers charging early, which
+// front-loads the schedule and raises the import peak. Only a peak stage ahead of
+// the preference stage can hold the horizon maximum at the even-spread minimum.
+//
+// T = 30, goal 24000 Wh at eta_c 0.95, so the grid must draw 24000/0.95 =
+// 25263.157 Wh; spread evenly that is an import peak of 842.105 W.
+func peakPriorityInput() Input {
+	const T = 30
+	grid := true
+	cp := 1
+	dt := make([]int, T)
+	gt := make([]float64, T)
+	ft := make([]float64, T)
+	pn := make([]float64, T)
+	pe := make([]float64, T)
+	sgoal := make([]float64, T)
+	for i := 0; i < T; i++ {
+		dt[i] = 3600
+		pn[i] = 0.3
+	}
+	sgoal[T-1] = 24000
+	return Input{
+		Strategy: Strategy{ChargingStrategy: "attenuate_demand_peaks"},
+		Batteries: []Battery{{
+			ChargeFromGrid: &grid, SCapacity: f64(50000), SMin: f64(0), SMax: f64(50000), SInitial: f64(0),
+			CMin: f64(0), CMax: f64(8000), DMax: f64(0), PA: f64(0), CPriority: &cp, SGoal: sgoal,
+		}},
+		Series: Series{DT: dt, GT: gt, FT: ft, PN: pn, PE: pe},
+		EtaC:   f64(0.95), EtaD: f64(0.95),
+	}
+}
+
+// TestPeakStageLevelsBeforePriority is the genuine Task 10 regression: the peak
+// objective (T2) must run before the preference objective (T3), so a c_priority
+// that wants early charging cannot raise the horizon peak. Without the peak stage
+// the preference stage fronts the charge and the import peak is 4210.53 W
+// (25263.157/6) instead of the even-spread 842.105 W.
+func TestPeakStageLevelsBeforePriority(t *testing.T) {
+	got, err := Solve(peakPriorityInput(), settings.Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "Optimal" {
+		t.Fatalf("status %s", got.Status)
+	}
+	if peak := maxFloat(got.GridImport); math.Abs(peak-842.1052631578948) > 1e-2 {
+		t.Fatalf("import peak %.4f, want even-spread minimum 842.1053; series %v", peak, got.GridImport)
+	}
+	if spread := maxFloat(got.GridImport) - minFloat(got.GridImport); spread > 1 {
+		t.Fatalf("grid_import spread %.4f, want flat; series %v", spread, got.GridImport)
+	}
+}
+
+// TestPeakStagePinsActivePeak locks the mechanism: after the cascade runs for a
+// peak strategy, each active peak variable carries a finite upper bound (the pin
+// stage C smooths under). Before the pin was wired the bound stayed +Inf.
+func TestPeakStagePinsActivePeak(t *testing.T) {
+	in := peakPriorityInput()
+	p, err := in.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mo := buildModel(p)
+	if _, err := mo.run(settings.Settings{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, side := range mo.peakSides {
+		if hi := mo.m.ColUpper[mo.peakVar(side)]; math.IsInf(hi, 1) {
+			t.Fatalf("active peak %q is not pinned (ColUpper +Inf)", side)
+		}
+	}
+}
+
 // TestSolve009DischargeBeforeImport is the preference-stage known answer: case 009
 // sets discharge_before_import, so the only discharge-capable battery must be
 // drained to s_min before the first grid import, and the import must not start
