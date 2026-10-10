@@ -53,6 +53,16 @@ func (in *Input) Validate() error {
 		d[key] = msg
 	}
 
+	// batteries (minItems 1) and time_series are required. Series is a value
+	// type, so "present" means at least one of its arrays is non-nil.
+	if len(in.Batteries) == 0 {
+		add("batteries", "required field is missing")
+	}
+	if in.Series.DT == nil && in.Series.GT == nil && in.Series.FT == nil &&
+		in.Series.PN == nil && in.Series.PE == nil {
+		add("time_series", "required field is missing")
+	}
+
 	if in.Strategy.ChargingStrategy != "" && !chargingStrategies[in.Strategy.ChargingStrategy] {
 		add("strategy.charging_strategy", "unknown charging strategy")
 	}
@@ -94,8 +104,8 @@ func (in *Input) Validate() error {
 		}
 	}
 	for _, v := range in.Series.DT {
-		if v < 0 {
-			add("time_series.dt", "must be >= 0")
+		if v <= 0 {
+			add("time_series.dt", "must be > 0")
 			break
 		}
 	}
@@ -104,7 +114,6 @@ func (in *Input) Validate() error {
 		vals []float64
 	}{
 		{"time_series.gt", in.Series.GT}, {"time_series.ft", in.Series.FT},
-		{"time_series.p_N", in.Series.PN}, {"time_series.p_E", in.Series.PE},
 	} {
 		if hasNegative(s.vals) {
 			add(s.key, "must be >= 0")
@@ -124,13 +133,15 @@ func (in *Input) Validate() error {
 				add(prefix+req.key, "required field is missing")
 			}
 		}
+		// Prices/valuations (p_N, p_E, p_a) may legitimately be negative and
+		// are intentionally excluded from non-negativity enforcement.
 		for _, nn := range []struct {
 			key string
 			val *float64
 		}{
 			{"s_capacity", b.SCapacity}, {"s_min", b.SMin}, {"s_max", b.SMax},
 			{"s_initial", b.SInitial}, {"c_min", b.CMin}, {"c_max", b.CMax},
-			{"d_max", b.DMax}, {"p_a", b.PA},
+			{"d_max", b.DMax},
 		} {
 			if nn.val != nil && *nn.val < 0 {
 				add(prefix+nn.key, "must be >= 0")
