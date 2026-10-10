@@ -110,6 +110,27 @@ func TestValidateRequiresBatteriesAndSeries(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsEmptySeries(t *testing.T) {
+	in := Input{Batteries: []Battery{validBattery()}, Series: Series{
+		DT: []int{3600}, GT: []float64{1}, FT: []float64{},
+		PN: []float64{0.3}, PE: []float64{0.1},
+	}}
+	err := in.Validate()
+	var ve *ValidationError
+	if !errors.As(err, &ve) || ve.Details["time_series.ft"] == "" {
+		t.Fatalf("want a time_series.ft detail, got %v", err)
+	}
+}
+
+func TestValidateRejectsZeroEta(t *testing.T) {
+	in := Input{Batteries: []Battery{validBattery()}, Series: twoStepSeries(), EtaD: f64(0)}
+	err := in.Validate()
+	var ve *ValidationError
+	if !errors.As(err, &ve) || ve.Details["eta_d"] == "" {
+		t.Fatalf("want an eta_d detail, got %v", err)
+	}
+}
+
 // TestValidateGoldenRequestsAreValid guards the conformance goal: real golden
 // requests contain negative prices/valuations and must pass validation.
 func TestValidateGoldenRequestsAreValid(t *testing.T) {

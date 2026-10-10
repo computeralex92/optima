@@ -80,15 +80,30 @@ func (in *Input) Validate() error {
 		add("grid.prc_p_exc_imp", "must be >= 0")
 	}
 
-	if in.EtaC != nil && (*in.EtaC < 0 || *in.EtaC > 1) {
-		add("eta_c", "must be in [0, 1]")
+	if in.EtaC != nil && (*in.EtaC <= 0 || *in.EtaC > 1) {
+		add("eta_c", "must be in (0, 1]")
 	}
-	if in.EtaD != nil && (*in.EtaD < 0 || *in.EtaD > 1) {
-		add("eta_d", "must be in [0, 1]")
+	if in.EtaD != nil && (*in.EtaD <= 0 || *in.EtaD > 1) {
+		add("eta_d", "must be in (0, 1]")
 	}
 
-	// Horizon. GT defines T; every other series must match it.
+	// Horizon. GT defines T; every series must be non-empty (minItems 1) and
+	// every other series must match GT's length.
 	t := len(in.Series.GT)
+	for _, s := range []struct {
+		key string
+		n   int
+	}{
+		{"time_series.dt", len(in.Series.DT)},
+		{"time_series.gt", len(in.Series.GT)},
+		{"time_series.ft", len(in.Series.FT)},
+		{"time_series.p_N", len(in.Series.PN)},
+		{"time_series.p_E", len(in.Series.PE)},
+	} {
+		if s.n == 0 {
+			add(s.key, "[] is too short")
+		}
+	}
 	seriesLen := []struct {
 		key string
 		n   int

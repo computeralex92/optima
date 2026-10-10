@@ -121,6 +121,8 @@ func buildModel(p Problem) *model {
 	prcGridImpPen := mo.penaltyBase * 1e2
 	prcGridExpPen := mo.penaltyBase * 1e2
 	prcPPeak := mo.penaltyBase * 1e-3
+	// ramp weight for the step-to-step roughness dev[t], per the reference.
+	prcPRamp := mo.penaltyBase * 1e-5
 
 	mo.peakSides = activePeakSides(p.Strategy)
 
@@ -353,7 +355,7 @@ func buildModel(p Problem) *model {
 		}
 
 		// 6. dynamics
-		{
+		if T > 0 {
 			var r coefRow
 			r.add(mo.s[i][0], 1)
 			r.add(mo.c[i][0], -p.EtaC)
@@ -553,7 +555,7 @@ func buildModel(p Problem) *model {
 	if len(mo.peakSides) > 0 {
 		// profile smoothing: minimize the step-to-step change under the pinned peak
 		for t := 0; t < T; t++ {
-			mo.prefRow = append(mo.prefRow, coef{mo.dev[t], -prcPPeak})
+			mo.prefRow = append(mo.prefRow, coef{mo.dev[t], -prcPRamp})
 		}
 	}
 	for i := range p.Batteries {

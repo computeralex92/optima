@@ -69,6 +69,31 @@ func TestModelGridImportCapGatedByExceedance(t *testing.T) {
 	}
 }
 
+// TestBuildModelDoesNotPanicAtZeroHorizon is the T==0 regression: an empty,
+// non-nil series normalizes to a zero-step Problem; buildModel must return a
+// well-formed empty model rather than indexing s/c/d at step 0.
+func TestBuildModelDoesNotPanicAtZeroHorizon(t *testing.T) {
+	in := Input{
+		EtaC: f64(0.95), EtaD: f64(0.95),
+		Batteries: []Battery{{
+			SMin: f64(0), SMax: f64(5000), SInitial: f64(0),
+			CMin: f64(0), CMax: f64(2000), DMax: f64(2000), PA: f64(0),
+		}},
+		Series: Series{
+			DT: []int{}, GT: []float64{}, FT: []float64{},
+			PN: []float64{}, PE: []float64{},
+		},
+	}
+	p, err := in.Normalize()
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	mo := buildModel(p)
+	if mo.T != 0 {
+		t.Fatalf("T = %d, want 0", mo.T)
+	}
+}
+
 // --- helpers ---
 
 func value(mo *model, sol *highs.Solution, col int) float64 {
