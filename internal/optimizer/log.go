@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/alex/optimizer-v2/internal/settings"
+	"github.com/computeralex92/optima/internal/settings"
 )
 
 // SolveInfo is the per-request observability metadata (spec 9). The cascade

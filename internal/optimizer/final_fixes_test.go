@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alex/optimizer-v2/internal/settings"
 	"github.com/bartolsthoorn/gohighs/highs"
+	"github.com/computeralex92/optima/internal/settings"
 )
 
 // preferenceBudgetInput is a two-step case whose cost optimum is unique (import

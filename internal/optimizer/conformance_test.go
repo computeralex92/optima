@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/alex/optimizer-v2/internal/settings"
+	"github.com/computeralex92/optima/internal/settings"
 )
 
 // tolerance constants, spec section 12.

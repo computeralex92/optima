@@ -8,8 +8,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/alex/optimizer-v2/internal/optimizer"
-	"github.com/alex/optimizer-v2/internal/settings"
+	"github.com/computeralex92/optima/internal/optimizer"
+	"github.com/computeralex92/optima/internal/settings"
 )
 
 func TestHealth(t *testing.T) {

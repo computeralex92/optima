@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alex/optimizer-v2/internal/settings"
 	"github.com/bartolsthoorn/gohighs/highs"
+	"github.com/computeralex92/optima/internal/settings"
 )
 
 // caseFile is the test_cases JSON wrapper: the raw request plus the golden

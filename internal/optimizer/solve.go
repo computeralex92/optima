@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/alex/optimizer-v2/internal/settings"
 	"github.com/bartolsthoorn/gohighs/highs"
+	"github.com/computeralex92/optima/internal/settings"
 )
 
 // pinEps is the slack allowed when a stage pins its achieved value before the

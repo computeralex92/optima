@@ -3,7 +3,7 @@ package optimizer
 import (
 	"testing"
 
-	"github.com/alex/optimizer-v2/internal/settings"
+	"github.com/computeralex92/optima/internal/settings"
 )
 
 // TestSolveLoggedMetadata pins the observable seam: SolveLogged returns the

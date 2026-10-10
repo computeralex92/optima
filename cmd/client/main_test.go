@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/alex/optimizer-v2/internal/optimizer"
+	"github.com/computeralex92/optima/internal/optimizer"
 )
 
 // TestRender pins the pure formatting: one row per step per battery carrying

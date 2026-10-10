@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/alex/optimizer-v2/internal/api"
-	"github.com/alex/optimizer-v2/internal/settings"
+	"github.com/computeralex92/optima/internal/api"
+	"github.com/computeralex92/optima/internal/settings"
 )
 
 func main() {

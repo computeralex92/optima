@@ -12,7 +12,7 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/alex/optimizer-v2/internal/optimizer"
+	"github.com/computeralex92/optima/internal/optimizer"
 )
 
 const defaultURL = "http://localhost:7050"

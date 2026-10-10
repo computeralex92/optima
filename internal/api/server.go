@@ -6,7 +6,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/alex/optimizer-v2/internal/settings"
+	"github.com/computeralex92/optima/internal/settings"
 )
 
 // NewServer builds the optimizer HTTP handler. Routes use Go 1.22 method+path

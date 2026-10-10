@@ -1,4 +1,4 @@
-module github.com/alex/optimizer-v2
+module github.com/computeralex92/optima
 
 go 1.27.2
 
