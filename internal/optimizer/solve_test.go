@@ -637,6 +637,71 @@ func TestContinuityKeepsPreferenceValue(t *testing.T) {
 	}
 }
 
+// objectiveAtLeast fails unless v meets the conformance floor v >= want - tol,
+// with tol = max(1e-4, 1e-5*|want|) (spec 12).
+func objectiveAtLeast(t *testing.T, got *float64, want float64) {
+	t.Helper()
+	if got == nil {
+		t.Fatal("objective_value is nil")
+	}
+	tol := math.Max(1e-4, 1e-5*math.Abs(want))
+	if *got < want-tol {
+		t.Fatalf("objective %v, want >= %v (tol %v)", *got, want, tol)
+	}
+}
+
+// TestSolve013GridExportLimitHit verifies the soft export limit (spec 5.2.3): a
+// p_max_exp that the schedule wants to exceed must be penalized (an overshoot
+// series) rather than made infeasible, and the violation flag set. Case 013 sets
+// only p_max_exp = 15000 and the golden exports beyond it, so the answer stays
+// Optimal with a positive grid_export_overshoot entry.
+func TestSolve013GridExportLimitHit(t *testing.T) {
+	in := loadCase(t, "../../test_cases/013-grid-export-limit-hit.json")
+	got, err := Solve(in, settings.Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "Optimal" && got.Status != "Feasible" {
+		t.Fatalf("status %s, want Optimal/Feasible (soft limit)", got.Status)
+	}
+	if !got.LimitViolations.GridExportLimitHit {
+		t.Fatal("limit_violations.grid_export_limit_hit = false, want true")
+	}
+	if T := len(in.Series.GT); len(got.GridExportOvershoot) != T {
+		t.Fatalf("len(grid_export_overshoot) = %d, want T = %d", len(got.GridExportOvershoot), T)
+	}
+	if maxFloat(got.GridExportOvershoot) <= 0 {
+		t.Fatalf("grid_export_overshoot %v has no positive entry", got.GridExportOvershoot)
+	}
+	objectiveAtLeast(t, got.ObjectiveValue, 17.527010877312602)
+}
+
+// TestSolve014GridImportLimitViolation is the import-side twin: p_max_imp = 3300
+// is exceeded in the golden schedule, so the import overshoot is present and
+// positive, the violation flag is set and the solve stays Optimal. No demand rate
+// is configured, so excImp is reported only as overshoot, not folded into
+// grid_import (spec 5.3).
+func TestSolve014GridImportLimitViolation(t *testing.T) {
+	in := loadCase(t, "../../test_cases/014-grid-import-limit-violation.json")
+	got, err := Solve(in, settings.Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "Optimal" && got.Status != "Feasible" {
+		t.Fatalf("status %s, want Optimal/Feasible (soft limit)", got.Status)
+	}
+	if !got.LimitViolations.GridImportLimitExceeded {
+		t.Fatal("limit_violations.grid_import_limit_exceeded = false, want true")
+	}
+	if T := len(in.Series.GT); len(got.GridImportOvershoot) != T {
+		t.Fatalf("len(grid_import_overshoot) = %d, want T = %d", len(got.GridImportOvershoot), T)
+	}
+	if maxFloat(got.GridImportOvershoot) <= 0 {
+		t.Fatalf("grid_import_overshoot %v has no positive entry", got.GridImportOvershoot)
+	}
+	objectiveAtLeast(t, got.ObjectiveValue, -7.094530917713852)
+}
+
 // minf64 is minFloat for a concrete slice, kept local to the test.
 func minf64(v []float64) float64 {
 	m := v[0]
