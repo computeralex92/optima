@@ -1,6 +1,24 @@
 package optimizer
 
-import "github.com/bartolsthoorn/gohighs/highs"
+import (
+	"math"
+
+	"github.com/bartolsthoorn/gohighs/highs"
+)
+
+// snapTol is the magnitude below which a reported power or energy is solver
+// relaxation noise rather than a real value. HiGHS returns values a hair off
+// zero (often negative) and the OpenAPI declares these fields with minimum 0,
+// so anything this small is reported as exactly 0.
+const snapTol = 1e-6
+
+// snap floors solver noise to zero so the payload carries no tiny negative powers.
+func snap(v float64) float64 {
+	if math.Abs(v) < snapTol {
+		return 0
+	}
+	return v
+}
 
 // assemble builds the OptimizationResult payload from a solution (spec section 3).
 // status is mapped by Task 7. On a non-solved status the payload carries empty
@@ -25,14 +43,14 @@ func (mo *model) assemble(sol *highs.Solution, status string) Result {
 		if demandActive {
 			imp += sol.Value(mo.excImp[t])
 		}
-		res.GridImport = append(res.GridImport, imp)
-		res.GridExport = append(res.GridExport, sol.Value(mo.e[t]))
+		res.GridImport = append(res.GridImport, snap(imp))
+		res.GridExport = append(res.GridExport, snap(sol.Value(mo.e[t])))
 		res.FlowDirection = append(res.FlowDirection, int(sol.Value(mo.y[t])))
 	}
 
 	if mo.excImp != nil {
 		for t := 0; t < mo.T; t++ {
-			x := sol.Value(mo.excImp[t])
+			x := snap(sol.Value(mo.excImp[t]))
 			res.GridImportOvershoot = append(res.GridImportOvershoot, x)
 			if x > 0 {
 				res.LimitViolations.GridImportLimitExceeded = true
@@ -41,7 +59,7 @@ func (mo *model) assemble(sol *highs.Solution, status string) Result {
 	}
 	if mo.excExp != nil {
 		for t := 0; t < mo.T; t++ {
-			x := sol.Value(mo.excExp[t])
+			x := snap(sol.Value(mo.excExp[t]))
 			res.GridExportOvershoot = append(res.GridExportOvershoot, x)
 			if x > 0 {
 				res.LimitViolations.GridExportLimitHit = true
@@ -63,7 +81,7 @@ func (mo *model) assemble(sol *highs.Solution, status string) Result {
 func colValues(sol *highs.Solution, cols []int) []float64 {
 	out := make([]float64, len(cols))
 	for i, c := range cols {
-		out[i] = sol.Value(c)
+		out[i] = snap(sol.Value(c))
 	}
 	return out
 }

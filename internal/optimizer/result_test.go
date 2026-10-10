@@ -156,9 +156,9 @@ func TestAssembleSolvedShapes(t *testing.T) {
 	}
 	br := res.Batteries[0]
 	for step := 0; step < mo.T; step++ {
-		if br.ChargingPower[step] != sol.ColValues[mo.c[0][step]] ||
-			br.DischargingPower[step] != sol.ColValues[mo.d[0][step]] ||
-			br.StateOfCharge[step] != sol.ColValues[mo.s[0][step]] {
+		if br.ChargingPower[step] != snap(sol.ColValues[mo.c[0][step]]) ||
+			br.DischargingPower[step] != snap(sol.ColValues[mo.d[0][step]]) ||
+			br.StateOfCharge[step] != snap(sol.ColValues[mo.s[0][step]]) {
 			t.Fatalf("battery mapping at step=%d", step)
 		}
 		if res.FlowDirection[step] != int(sol.ColValues[mo.y[step]]) {
@@ -168,6 +168,38 @@ func TestAssembleSolvedShapes(t *testing.T) {
 }
 
 // --- helpers ---
+
+// TestSnap floors solver noise and leaves real values untouched.
+func TestSnap(t *testing.T) {
+	for _, c := range []struct{ in, want float64 }{
+		{0, 0}, {1e-13, 0}, {-5.68e-14, 0}, {1e-7, 0}, {1e-5, 1e-5}, {-42, -42}, {3.5, 3.5},
+	} {
+		if got := snap(c.in); got != c.want {
+			t.Fatalf("snap(%v) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+// TestAssembleSnapsNoise: the payload must carry no tiny negative powers, and a
+// real value must survive. Also proves the assembly is wired to snap.
+func TestAssembleSnapsNoise(t *testing.T) {
+	mo := buildModel(toyGoalProblem())
+	sol := blankSol(mo)
+	sol.ColValues[mo.n[0]] = 1e-13       // noise import
+	sol.ColValues[mo.n[1]] = -5.68e-14   // noise, negative
+	sol.ColValues[mo.c[0][0]] = -1.7e-13 // noise charge
+	sol.ColValues[mo.c[0][1]] = 42       // real charge
+	res := mo.assemble(sol, "Optimal")
+	if res.GridImport[0] != 0 || res.GridImport[1] != 0 {
+		t.Fatalf("noise import not snapped: %v %v", res.GridImport[0], res.GridImport[1])
+	}
+	if res.Batteries[0].ChargingPower[0] != 0 {
+		t.Fatalf("noise charge not snapped: %v", res.Batteries[0].ChargingPower[0])
+	}
+	if res.Batteries[0].ChargingPower[1] != 42 {
+		t.Fatalf("real charge changed: %v", res.Batteries[0].ChargingPower[1])
+	}
+}
 
 func blankSol(mo *model) *highs.Solution {
 	return &highs.Solution{ColValues: make([]float64, mo.m.NumVars())}
