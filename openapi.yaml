@@ -1,0 +1,500 @@
+openapi: 3.0.0
+info:
+  title: EV Charging Optimization API
+  description: |
+    Mixed Integer Linear Programming model for EV charging optimization based on the EOS (Energy Optimization System) formulation.
+
+    This API optimizes energy management systems with battery storage and grid interaction capabilities, maximizing economic benefit by:
+    - Minimizing grid import costs
+    - Maximizing export revenue 
+    - Considering final state of charge value
+
+    The optimization model includes:
+    - Power balance constraints
+    - Battery dynamics with charging/discharging efficiency
+    - Grid flow direction constraints
+    - Operating and storage limits
+
+    **Mathematical Formulation:**
+
+    Objective: Maximize Σt(-nt*pN + et*pE) + Σi(si,T*pai)
+
+    Subject to:
+    - Power balance: Σi(ci,t - di,t) + ft + nt = et + gt ∀t
+    - Battery dynamics: si,t+1 = si,t + ηc*ci,t - (1/ηd)*di,t ∀t,i
+    - Grid flow constraints when pN ≤ pE
+    - Operating limits: 0 ≤ ci,t ≤ cmax_i, 0 ≤ di,t ≤ dmax_i
+    - Storage limits: smin_i ≤ si,t ≤ smax_i
+  version: 1.0.0
+  contact:
+    email: info@evcc.io
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:7050
+    description: Development server
+  - url: https://api.example.com
+    description: Production server
+
+paths:
+  /optimize/charge-schedule:
+    post:
+      tags:
+        - optimization
+      summary: Optimize EV charging schedule
+      description: |
+        Solves a Mixed Integer Linear Programming problem to optimize EV charging schedules.
+
+        The optimization considers:
+        - Multiple batteries (EV batteries, PV storage)
+        - Time-varying energy demands and production forecasts
+        - Dynamic grid import/export prices
+        - Battery operational constraints
+        - Charging/discharging efficiency losses
+
+        Returns optimal charging/discharging schedules for all batteries and grid interactions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OptimizationInput"
+            example:
+              batteries:
+                - s_capacity: 52000
+                  s_min: 5000
+                  s_max: 50000
+                  s_initial: 15000
+                  s_goal: [0, 0, 40000, 0, 0, 0]
+                  c_min: 4200
+                  c_max: 11000
+                  d_max: 0
+                  p_a: 0.25
+                - s_min: 1000
+                  s_max: 8000
+                  s_initial: 5000
+                  c_min: 0
+                  c_max: 5000
+                  d_max: 5000
+                  p_a: 0.20
+              time_series:
+                dt: [3600, 3600, 3600, 3600, 3600, 3600]
+                gt: [3000, 4000, 5000, 4500, 3500, 3000]
+                ft: [2000, 6000, 8000, 7000, 4000, 1000]
+                p_N: [0.30, 0.25, 0.20, 0.22, 0.28, 0.32]
+                p_E: [0.15, 0.12, 0.10, 0.11, 0.14, 0.16]
+              eta_c: 0.95
+              eta_d: 0.95
+              M: 1000000
+      responses:
+        "200":
+          description: Optimization completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OptimizationResult"
+              example:
+                status: "Optimal"
+                objective_value: 1250.75
+                batteries:
+                  - charging_power: [7000, 0, 0, 0, 0, 0]
+                    discharging_power: [0, 2000, 3000, 2500, 1500, 1000]
+                    state_of_charge: [21650, 19650, 16650, 14150, 12650, 11650]
+                  - charging_power: [0, 2000, 3000, 2500, 0, 0]
+                    discharging_power: [0, 0, 0, 0, 500, 1000]
+                    state_of_charge: [5000, 6900, 9755, 12130, 11635, 10635]
+                grid_import: [1000, 0, 0, 0, 0, 2000]
+                grid_export: [0, 2000, 3000, 2500, 500, 0]
+                flow_direction: [0, 1, 1, 1, 1, 0]
+        "400":
+          description: Bad request - Invalid input data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                message: "All time series must have the same length"
+        "500":
+          description: Internal server error - Optimization failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                message: "Optimization failed: Infeasible problem"
+
+  /optimize/health:
+    get:
+      tags:
+        - health
+      summary: Health check
+      description: Check if the API service is running and healthy
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "healthy"
+                  message:
+                    type: string
+                    example: "EV Charging MILP API is running"
+
+components:
+  schemas:
+    OptimizerStrategy:
+      type: object
+      properties:
+        charging_strategy:
+          type: string
+          enum: [none, charge_before_export, attenuate_demand_peaks, attenuate_feedin_peaks, attenuate_grid_peaks]
+          description: |
+            Sets a strategy for charging in situations where choices are cost neutral.
+            - none (default): no strategy set 
+            - charge_before_export: charge batteries before exporting to grid
+            - attenuate_demand_peaks: level the grid import profile, charging at partial power over several time steps instead of one peak
+            - attenuate_feedin_peaks: level the grid export profile, charging to shave solar feed-in peaks
+            - attenuate_grid_peaks: level both the grid import and the grid export profile
+        discharging_strategy:
+          type: string
+          enum: [none, discharge_before_import]
+          description: |
+            Sets a strategy for charging in situations where choices are cost neutral.
+            - none (default): no strategy set 
+            - discharge_before_import: discharge batteries before importing from grid
+    GridConfig:
+      type: object
+      properties:
+        p_max_imp:
+          type: number
+          minimum: 0
+          description: Maximum grid import power in W
+        p_max_exp:
+          type: number
+          minimum: 0
+          description: Maximum grid export power in W
+        prc_p_exc_imp:
+          type: number
+          minimum: 0
+          description: |
+            price per W to consider in case the import limit is exceeded. 
+            If not specified, the limit will be protected by a hard constraint.
+    BatteryConfig:
+      type: object
+      required:
+        - s_min
+        - s_max
+        - s_initial
+        - c_min
+        - c_max
+        - d_max
+        - p_a
+      properties:
+        charge_from_grid:
+          type: boolean
+          description: |
+            Controls whether the battery can be charged from the grid.
+              - True: The battery can be charged from grid at any time. The actual decision is subject
+                to the optimization.
+              - False: (default) The battery cannot be charged while power is retrieved from grid
+        discharge_to_grid:
+          type: boolean
+          description: |
+            Controls whether the battery can discharge to grid.
+              - True: The battery can discharge to the grid at any time. The actual decision is
+                subject to the optimization.
+              - False: (default) The battery cannot be discharged while power is exported to the grid.
+        s_capacity:
+          type: number
+          minimum: 0
+          description: |
+            The capacity at 100% SOC in Wh. If not specified s_capacity will be set to s_max.
+            s_initial must be less or equal s_capacity, otherwise the optimization will return an error.
+        s_min:
+          type: number
+          minimum: 0
+          description: Minimum state of charge in Wh
+          example: 5000
+        s_max:
+          type: number
+          minimum: 0
+          description: Maximum state of charge in Wh
+          example: 50000
+        s_initial:
+          type: number
+          minimum: 0
+          description: Initial state of charge in Wh
+          example: 15000
+        c_min:
+          type: number
+          minimum: 0
+          description: Minimum charge power in W
+          example: 0
+        c_max:
+          type: number
+          minimum: 0
+          description: Maximum charge power in W
+          example: 11000
+        c_active:
+          type: boolean
+          default: false
+          description: |
+            Whether the device is charging at the start of the time horizon.
+              - True: the device enters the horizon switched on, so keeping it on costs no charge
+                start and interrupting it costs one.
+              - False: (default) the device is idle and any charging starts a new session.
+          example: true
+        d_max:
+          type: number
+          minimum: 0
+          description: Maximum discharge power in W
+          example: 5000
+        p_a:
+          type: number
+          minimum: 0
+          description: Monetary value of the stored energy per Wh at end of time horizon
+          example: 0.25
+        p_demand:
+          type: array
+          items:
+            type: number
+            minimum: 0
+          description: Minimum charge demand per time step (Wh)
+          example: [0, 1200, 1800, 2500, 1200, 1500]
+        s_goal:
+          type: array
+          items:
+            type: number
+            minimum: 0
+          description: Goal state of charge for this battery at each time step (Wh)
+          example: [0, 0, 40000, 0, 0, 0]
+        c_priority:
+          type: integer
+          minimum: 0
+          maximum: 2
+          default: 0
+          description: Charging and discharging priority 0..2 compared to other batteries. 2 = highest priority.
+
+    TimeSeries:
+      type: object
+      required:
+        - dt
+        - gt
+        - ft
+        - p_N
+        - p_E
+      properties:
+        dt:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+          description: Duration in seconds for each time step (s)
+          example: [3600, 3600, 3600, 3600, 3600, 3600]
+        gt:
+          type: array
+          items:
+            type: number
+            minimum: 0
+          description: Household energy demand at each time step (Wh)
+          example: [3000, 4000, 5000, 4500, 3500, 3000]
+        ft:
+          type: array
+          items:
+            type: number
+            minimum: 0
+          description: Forecasted energy generation (e.g., solar PV) at each time step (Wh)
+          example: [2000, 6000, 8000, 7000, 4000, 1000]
+        p_N:
+          type: array
+          items:
+            type: number
+            minimum: 0
+          description: Grid import price per Wh at each time step (currency units/Wh)
+          example: [0.30, 0.25, 0.20, 0.22, 0.28, 0.32]
+        p_E:
+          type: array
+          items:
+            type: number
+            minimum: 0
+          description: Grid export remuneration per Wh at each time step (currency units/Wh)
+          example: [0.15, 0.12, 0.10, 0.11, 0.14, 0.16]
+
+    OptimizationInput:
+      type: object
+      required:
+        - batteries
+        - time_series
+      properties:
+        strategy:
+          type: object
+          $ref: "#/components/schemas/OptimizerStrategy"
+          description: Strategy preferences
+        grid: 
+          type: object
+          $ref: "#/components/schemas/GridConfig"
+          description: Grid configuration 
+        batteries:
+          type: array
+          items:
+            $ref: "#/components/schemas/BatteryConfig"
+          minItems: 1
+          description: Configuration for all batteries in the system
+        time_series:
+          $ref: "#/components/schemas/TimeSeries"
+        eta_c:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.95
+          description: Charging efficiency (0 to 1)
+          example: 0.95
+        eta_d:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.95
+          description: Discharging efficiency (0 to 1)
+          example: 0.95
+
+    BatteryResult:
+      type: object
+      properties:
+        charging_power:
+          type: array
+          items:
+            type: number
+            minimum: 0
+          description: Optimal charging energy at each time step (Wh)
+          example: [7000, 0, 0, 0, 0, 0]
+        discharging_power:
+          type: array
+          items:
+            type: number
+            minimum: 0
+          description: Optimal discharging energy at each time step (Wh)
+          example: [0, 2000, 3000, 2500, 1500, 1000]
+        state_of_charge:
+          type: array
+          items:
+            type: number
+            minimum: 0
+          description: State of charge at each time step (Wh)
+          example: [21650, 19650, 16650, 14150, 12650, 11650]
+
+    LimitViolationResult:
+      type: object
+      properties:
+        grid_import_limit_exceeded: 
+          type: boolean
+          description: The energy demand could only be satisfied by violating the grid import limit.
+        grid_export_limit_hit: 
+          type: boolean
+          description: The solar yield in (Wh) that was reduced due to the limitation of grid export power.
+
+    OptimizationResult:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [Optimal, Feasible, Infeasible, Unbounded, Undefined, Not Solved]
+          description: |
+            Optimization solver status:
+            - Optimal: Problem solved to proven optimality
+            - Feasible: A schedule was found but the solver stopped before proving it optimal,
+              normally because it reached OPTIMIZER_TIME_LIMIT. The response carries a complete,
+              usable schedule, the same shape as Optimal; it is simply not proved to be the best
+              one. Treat it as usable.
+            - Infeasible: No feasible solution exists
+            - Unbounded: Objective function is unbounded
+            - Undefined: Problem status is undefined
+            - Not Solved: Problem was not solved
+          example: "Optimal"
+        objective_value:
+          type: number
+          nullable: true
+          description: |
+            Objective function value (economic benefit in currency units). Present for Optimal and
+            Feasible, null otherwise.
+          example: 1250.75
+        limit_violations:
+          type: object
+          $ref: "#/components/schemas/LimitViolationResult"
+          description: status of power limit violations
+        batteries:
+          type: array
+          items:
+            $ref: "#/components/schemas/BatteryResult"
+          description: Optimization results for each battery
+        grid_import:
+          type: array
+          items:
+            type: number
+            minimum: 0
+          description: Energy imported from grid at each time step (Wh)
+          example: [1000, 0, 0, 0, 0, 2000]
+        grid_export:
+          type: array
+          items:
+            type: number
+            minimum: 0
+          description: Energy exported to grid at each time step (Wh)
+          example: [0, 2000, 3000, 2500, 500, 0]
+        flow_direction:
+          type: array
+          items:
+            type: integer
+            enum: [0, 1]
+          description: |
+            Binary flow direction at each time step:
+            - 0: Import from grid
+            - 1: Export to grid
+          example: [0, 1, 1, 1, 1, 0]
+        grid_import_overshoot:
+          type: array
+          items:
+            type: number
+            minimum: 0
+          description: Energy above the power limit imported from grid at each time step (Wh)
+          example: [0, 0, 1000, 10, 0, 0]
+        grid_export_overshoot:
+          type: array
+          items:
+            type: number
+            minimum: 0
+          description: Energy not exported due to hitting the grid export power limit at each time step (Wh)
+          example: [0, 0, 1000, 10, 0, 0]
+
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Error message describing what went wrong
+          example: "Input payload validation failed"
+        details:
+          type: object
+          additionalProperties:
+            type: string
+          description: Field-specific validation errors. Keys are field paths (e.g., "batteries.0.s_max"), values are error messages.
+          example:
+            batteries.0.s_max: "'s_max' is a required property"
+            time_series.ft: "[] is too short"
+
+tags:
+  - name: optimization
+    description: EV charging schedule optimization operations
+  - name: health
+    description: Service health monitoring
+  - name: examples
+    description: Example data for testing
+
+externalDocs:
+  description: Learn more about MILP optimization
+  url: https://en.wikipedia.org/wiki/Integer_programming
