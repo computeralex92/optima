@@ -8,7 +8,8 @@ import (
 
 func TestNormalizeDefaults(t *testing.T) {
 	smax := 10000.0
-	in := Input{Batteries: []Battery{{SMax: &smax}}, Series: Series{GT: []float64{1, 2}}}
+	pmaxExp := 7000.0
+	in := Input{Batteries: []Battery{{SMax: &smax}}, Grid: Grid{PmaxExp: &pmaxExp}, Series: Series{GT: []float64{1, 2}}}
 	p, err := in.Normalize()
 	if err != nil {
 		t.Fatal(err)
@@ -21,6 +22,14 @@ func TestNormalizeDefaults(t *testing.T) {
 	}
 	if p.Strategy.ChargingStrategy != "none" || p.Strategy.DischargingStrategy != "none" {
 		t.Fatalf("strategy defaults: %+v", p.Strategy)
+	}
+	// Grid limit pointers must survive Normalize: nil stays absent, a set value
+	// is preserved unchanged (absent must never collapse to zero).
+	if p.Grid.PmaxImp != nil || p.Grid.PrcPExcImp != nil {
+		t.Fatalf("absent grid limits must stay nil: %+v", p.Grid)
+	}
+	if p.Grid.PmaxExp == nil || *p.Grid.PmaxExp != 7000 {
+		t.Fatalf("set grid limit must be preserved, got %v", p.Grid.PmaxExp)
 	}
 }
 
