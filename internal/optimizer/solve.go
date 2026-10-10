@@ -32,9 +32,9 @@ func Solve(in Input, s settings.Settings) (Result, error) {
 }
 
 // run drives the lexicographic cascade on one built model. All stages share a
-// single wall clock. Stage A (cost) always runs; the peak, preference and
-// continuity stages are no-ops until Tasks 8-10 fill their coefficient rows
-// (R4), so only the cost stage runs here.
+// single wall clock. Stage A (cost) always runs, stage C (preference) runs when
+// prefRow is non-empty; the peak and continuity stages are no-ops until Tasks
+// 9-10 wire them.
 func (mo *model) run(s settings.Settings) (Result, error) {
 	var deadline time.Time
 	if s.TimeLimit != nil {
@@ -57,24 +57,75 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 		return mo.assemble(nil, mapStatus(st, false)), nil
 	}
 
+	// The cost stage decides the reported status (spec 6.1): the preference stage
+	// proves its own objective optimal only under the cost bound, so it never
+	// certifies the cost optimum and never upgrades the answer's status.
+	status := sol.Status
+
 	// Pin the achieved cost so later stages cannot trade it away.
 	mo.pinLower(mo.costRow, objective(mo.costRow, sol))
 
-	// Stages B (peak), C (preference) and D (continuity) run here once Tasks
-	// 8-10 populate their rows; until then the cascade is cost-only.
+	// Stage C: preference (T3, spec 5.3). Runs when any T3 term applies, under the
+	// cost bound, at gap 0 (proven-optimal tie break). The objective is normalized
+	// to unit magnitude so its gap is meaningful (spec 6.2). It can never spend
+	// money: the cost pin bounds it, and a worse or unsolved stop leaves the
+	// cost-stage solution in place.
+	if len(mo.prefRow) > 0 {
+		psol, err := mo.stage(mo.prefCoeffs(), 0, deadline, s)
+		if err != nil {
+			return Result{}, err
+		}
+		if psol != nil && psol.HasSolution() &&
+			objective(mo.prefRow, psol) > objective(mo.prefRow, sol) {
+			sol = psol
+		}
+	}
+
+	// Stage B (peak) and D (continuity) run here once Tasks 9-10 populate their
+	// rows; until then the cascade is cost + preference.
 
 	// Final safety pass (spec 6.1): never report a schedule that breaks the model.
-	return mo.finalize(sol), nil
+	return mo.finalizeStatus(sol, status), nil
+}
+
+// prefCoeffs returns the T3 preference objective as a dense coefficient vector of
+// length NumVars, normalized to unit magnitude (spec 6.2) so the stage's gap
+// tolerance is meaningful. A zero row is returned unchanged.
+func (mo *model) prefCoeffs() []float64 {
+	costs := make([]float64, mo.m.NumVars())
+	for _, c := range mo.prefRow {
+		costs[c.col] += c.val
+	}
+	peak := 0.0
+	for _, v := range costs {
+		if a := math.Abs(v); a > peak {
+			peak = a
+		}
+	}
+	if peak == 0 {
+		return costs
+	}
+	for i := range costs {
+		costs[i] /= peak
+	}
+	return costs
 }
 
 // finalize applies the final status decision to the chosen solution: the safety
 // pass downgrades a schedule that breaks the model to Not Solved, otherwise the
-// HiGHS status is mapped.
+// solution's HiGHS status is mapped.
 func (mo *model) finalize(sol *highs.Solution) Result {
+	return mo.finalizeStatus(sol, sol.Status)
+}
+
+// finalizeStatus is finalize with an explicit deciding status: the cascade keeps
+// the cost stage's status even when a later stage's solution is retained (spec
+// 6.1), so the reported status does not follow sol.Status there.
+func (mo *model) finalizeStatus(sol *highs.Solution, st highs.ModelStatus) Result {
 	if !mo.safetyCheck(sol) {
 		return mo.assemble(nil, "Not Solved")
 	}
-	return mo.assemble(sol, mapStatus(sol.Status, true))
+	return mo.assemble(sol, mapStatus(st, true))
 }
 
 // stage sets one stage's objective and solves it within the shared deadline.

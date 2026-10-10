@@ -53,6 +53,68 @@ func TestSolve024CostObjective(t *testing.T) {
 	}
 }
 
+// TestSolve009DischargeBeforeImport is the preference-stage known answer: case 009
+// sets discharge_before_import, so the only discharge-capable battery must be
+// drained to s_min before the first grid import, and the import must not start
+// earlier than the golden schedule's step 20. Before Task 8 the cost-only cascade
+// imports at step 18 with the battery still holding 859 Wh, so the shape check is
+// what fails.
+func TestSolve009DischargeBeforeImport(t *testing.T) {
+	in := loadCase(t, "../../test_cases/009-discharge-before-import.json")
+	p, err := in.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Solve(in, settings.Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "Optimal" {
+		t.Fatalf("status %s", got.Status)
+	}
+	if got.ObjectiveValue == nil {
+		t.Fatal("objective_value is nil")
+	}
+	if math.Abs(*got.ObjectiveValue-2.66254976413256) > 1e-3 {
+		t.Fatalf("objective %v, want 2.66254976413256", *got.ObjectiveValue)
+	}
+
+	firstImp := firstAbove(got.GridImport)
+	if firstImp < 0 {
+		t.Fatal("schedule never imports from the grid")
+	}
+	const goldenFirstImport = 20
+	if firstImp < goldenFirstImport {
+		t.Fatalf("first grid import at step %d, earlier than golden step %d", firstImp, goldenFirstImport)
+	}
+	for i, b := range got.Batteries {
+		if p.Batteries[i].DMax <= 0 {
+			continue
+		}
+		d := firstAbove(b.DischargingPower)
+		if d < 0 {
+			t.Fatalf("battery %d never discharges", i)
+		}
+		if d >= firstImp {
+			t.Fatalf("battery %d first discharges at %d, not before first import at %d", i, d, firstImp)
+		}
+		if soc := b.StateOfCharge[firstImp]; soc > p.Batteries[i].SMin+1 {
+			t.Fatalf("battery %d SOC %.2f at first import step %d, want drained to s_min %.2f",
+				i, soc, firstImp, p.Batteries[i].SMin)
+		}
+	}
+}
+
+// firstAbove returns the index of the first value above a small threshold, or -1.
+func firstAbove(v []float64) int {
+	for i, x := range v {
+		if x > 1e-6 {
+			return i
+		}
+	}
+	return -1
+}
+
 // TestOvershootSeriesPresence is Review Focus 3: the overshoot arrays exist only
 // when the corresponding p_max is configured. An absent p_max_exp must yield a
 // zero-length (non-nil) grid_export_overshoot; an explicit p_max_exp = 0 must
@@ -170,5 +232,28 @@ func TestSafetyPassDowngradesBrokenSchedule(t *testing.T) {
 	}
 	if res.ObjectiveValue != nil {
 		t.Fatal("downgraded result must carry a nil objective")
+	}
+}
+
+// TestFinalizeStatusUsesDecidingStage locks the cascade's status rule: the answer
+// reports the deciding stage's status, not the retained solution's own status, so a
+// preference-stage Optimum cannot upgrade a cost stage that only reached Feasible.
+func TestFinalizeStatusUsesDecidingStage(t *testing.T) {
+	mo := buildModel(toyGoalProblem())
+	mo.m.ColCosts = mo.costCoeffs()
+	sol, err := mo.m.Solve(
+		highs.WithOutput(false),
+		highs.WithPresolve("on"),
+		highs.WithMIPRelGap(0),
+		highs.WithMIPAbsGap(0),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mo.finalizeStatus(sol, highs.ModelStatusTimeLimit).Status; got != "Feasible" {
+		t.Fatalf("status %q, want Feasible", got)
+	}
+	if got := mo.finalizeStatus(sol, highs.ModelStatusOptimal).Status; got != "Optimal" {
+		t.Fatalf("status %q, want Optimal", got)
 	}
 }
