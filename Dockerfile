@@ -16,7 +16,8 @@ RUN CGO_ENABLED=1 go build -o /out/optimizer ./cmd/optimizer
 # Runtime: HiGHS needs glibc and libstdc++, so not scratch. Debian bookworm-slim
 # matches the builder's glibc.
 FROM debian:bookworm-slim AS runtime
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates libstdc++6 zlib1g \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/optimizer /usr/local/bin/optimizer
 EXPOSE 7050

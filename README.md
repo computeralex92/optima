@@ -77,7 +77,7 @@ The vendored `openapi.yaml` is the source of truth; both endpoints match the ori
   peak and preference bounds, so the result can never trade away money or preference
   value for a nicer schedule.
 - **Better performance.** A modern solver, a shorter lexicographic cascade with fewer
-  solves than the original's five stages, native parallelism, and optional warm starts.
+  solves than the original's five stages, and native parallelism.
 
 ## Layout
 
