@@ -236,8 +236,10 @@ func TestSafetyPassDowngradesBrokenSchedule(t *testing.T) {
 }
 
 // TestFinalizeStatusUsesDecidingStage locks the cascade's status rule: the answer
-// reports the deciding stage's status, not the retained solution's own status, so a
-// preference-stage Optimum cannot upgrade a cost stage that only reached Feasible.
+// reports the deciding stage's status, which is the last retained stage's status
+// (spec 6.1). A retained proven preference stage decides Optimal; a retained
+// truncated preference stage decides Feasible; an unretained stage leaves the
+// previous (cost) status standing.
 func TestFinalizeStatusUsesDecidingStage(t *testing.T) {
 	mo := buildModel(toyGoalProblem())
 	mo.m.ColCosts = mo.costCoeffs()
@@ -250,10 +252,74 @@ func TestFinalizeStatusUsesDecidingStage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := mo.finalizeStatus(sol, highs.ModelStatusTimeLimit).Status; got != "Feasible" {
-		t.Fatalf("status %q, want Feasible", got)
+
+	// Pretend the cost stage stopped at a time limit with an incumbent.
+	const costStatus = highs.ModelStatusTimeLimit
+
+	cases := []struct {
+		name     string
+		retained *highs.Solution
+		want     string
+	}{
+		{"retained proven preference stage", &highs.Solution{Status: highs.ModelStatusOptimal}, "Optimal"},
+		{"retained truncated preference stage", &highs.Solution{Status: highs.ModelStatusTimeLimit}, "Feasible"},
+		{"unretained stage keeps the cost status", nil, "Feasible"},
 	}
-	if got := mo.finalizeStatus(sol, highs.ModelStatusOptimal).Status; got != "Optimal" {
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st := decidingStatus(costStatus, tc.retained)
+			if got := mo.finalizeStatus(sol, st).Status; got != tc.want {
+				t.Fatalf("status %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	// A retained proven preference stage over a proven cost stage stays Optimal.
+	st := decidingStatus(highs.ModelStatusOptimal, &highs.Solution{Status: highs.ModelStatusOptimal})
+	if got := mo.finalizeStatus(sol, st).Status; got != "Optimal" {
 		t.Fatalf("status %q, want Optimal", got)
+	}
+}
+
+// TestHasNonzero is the stage-C gate: buildModel appends zero-valued terms (for
+// example c_priority == 0 for every battery/step), so the gate must look for a
+// nonzero coefficient, not merely a non-empty row.
+func TestHasNonzero(t *testing.T) {
+	cases := []struct {
+		name string
+		row  []coef
+		want bool
+	}{
+		{"one nonzero", []coef{{0, -1}}, true},
+		{"nonzero after zero", []coef{{0, 0}, {1, 3}}, true},
+		{"empty", nil, false},
+		{"all zero", []coef{{0, 0}, {1, 0}, {2, 0}}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hasNonzero(tc.row); got != tc.want {
+				t.Fatalf("hasNonzero(%v) = %v, want %v", tc.row, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSolve022PureCost guards the gate fix: case 022 has no strategy and
+// c_priority 0, so every prefRow term is zero and stage C must be skipped. Money
+// must be unaffected, so the clean objective still matches the golden value.
+func TestSolve022PureCost(t *testing.T) {
+	in := loadCase(t, "../../test_cases/022-feed-in-cap-recovery.json")
+	got, err := Solve(in, settings.Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "Optimal" && got.Status != "Feasible" {
+		t.Fatalf("status %s", got.Status)
+	}
+	if got.ObjectiveValue == nil {
+		t.Fatal("objective_value is nil")
+	}
+	if math.Abs(*got.ObjectiveValue-200.38) > 1e-3 {
+		t.Fatalf("objective %v, want 200.38", *got.ObjectiveValue)
 	}
 }

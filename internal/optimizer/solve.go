@@ -33,8 +33,8 @@ func Solve(in Input, s settings.Settings) (Result, error) {
 
 // run drives the lexicographic cascade on one built model. All stages share a
 // single wall clock. Stage A (cost) always runs, stage C (preference) runs when
-// prefRow is non-empty; the peak and continuity stages are no-ops until Tasks
-// 9-10 wire them.
+// the preference row has a nonzero coefficient; the peak and continuity stages
+// are no-ops until Tasks 9-10 wire them.
 func (mo *model) run(s settings.Settings) (Result, error) {
 	var deadline time.Time
 	if s.TimeLimit != nil {
@@ -57,20 +57,20 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 		return mo.assemble(nil, mapStatus(st, false)), nil
 	}
 
-	// The cost stage decides the reported status (spec 6.1): the preference stage
-	// proves its own objective optimal only under the cost bound, so it never
-	// certifies the cost optimum and never upgrades the answer's status.
+	// The deciding status starts with the cost stage and is superseded whenever a
+	// later stage retains its solution (spec 6.1: the last retained stage decides).
 	status := sol.Status
 
 	// Pin the achieved cost so later stages cannot trade it away.
 	mo.pinLower(mo.costRow, objective(mo.costRow, sol))
 
-	// Stage C: preference (T3, spec 5.3). Runs when any T3 term applies, under the
-	// cost bound, at gap 0 (proven-optimal tie break). The objective is normalized
-	// to unit magnitude so its gap is meaningful (spec 6.2). It can never spend
-	// money: the cost pin bounds it, and a worse or unsolved stop leaves the
-	// cost-stage solution in place.
-	if len(mo.prefRow) > 0 {
+	// Stage C: preference (T3, spec 5.3). Runs only when some T3 term is actually
+	// active (a nonzero preference coefficient), under the cost bound, at gap 0
+	// (proven-optimal tie break). The objective is normalized to unit magnitude so
+	// its gap is meaningful (spec 6.2). It can never spend money: the cost pin
+	// bounds it, and a worse or unsolved stop leaves the cost-stage solution in
+	// place, and with it the cost stage's deciding status.
+	if hasNonzero(mo.prefRow) {
 		psol, err := mo.stage(mo.prefCoeffs(), 0, deadline, s)
 		if err != nil {
 			return Result{}, err
@@ -78,14 +78,40 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 		if psol != nil && psol.HasSolution() &&
 			objective(mo.prefRow, psol) > objective(mo.prefRow, sol) {
 			sol = psol
+			status = decidingStatus(status, psol)
 		}
 	}
 
 	// Stage B (peak) and D (continuity) run here once Tasks 9-10 populate their
-	// rows; until then the cascade is cost + preference.
+	// rows; they retain through the same deciding-status rule.
 
 	// Final safety pass (spec 6.1): never report a schedule that breaks the model.
 	return mo.finalizeStatus(sol, status), nil
+}
+
+// hasNonzero reports whether a sparse objective row carries at least one nonzero
+// coefficient. buildModel appends zero-valued terms (for example the c_priority
+// terms when c_priority == 0), so a non-empty row does not by itself mean a
+// stage applies.
+func hasNonzero(row []coef) bool {
+	for _, c := range row {
+		if c.val != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// decidingStatus returns the model status that decides the reported answer. Spec
+// 6.1 keys Optimal on the last retained stage: a later stage that retains its
+// solution supersedes the previous deciding status (retained != nil), while a
+// stage that does not retain anything leaves it standing. Tasks 9-10 route their
+// stages through this same rule.
+func decidingStatus(prev highs.ModelStatus, retained *highs.Solution) highs.ModelStatus {
+	if retained != nil {
+		return retained.Status
+	}
+	return prev
 }
 
 // prefCoeffs returns the T3 preference objective as a dense coefficient vector of
@@ -118,9 +144,9 @@ func (mo *model) finalize(sol *highs.Solution) Result {
 	return mo.finalizeStatus(sol, sol.Status)
 }
 
-// finalizeStatus is finalize with an explicit deciding status: the cascade keeps
-// the cost stage's status even when a later stage's solution is retained (spec
-// 6.1), so the reported status does not follow sol.Status there.
+// finalizeStatus is finalize with an explicit deciding status. The cascade passes
+// the last retained stage's status (spec 6.1), which is not necessarily the
+// retained solution's own status when a later stage declined to retain.
 func (mo *model) finalizeStatus(sol *highs.Solution, st highs.ModelStatus) Result {
 	if !mo.safetyCheck(sol) {
 		return mo.assemble(nil, "Not Solved")
