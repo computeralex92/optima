@@ -33,8 +33,8 @@ func Solve(in Input, s settings.Settings) (Result, error) {
 
 // run drives the lexicographic cascade on one built model. All stages share a
 // single wall clock. Stage A (cost) always runs, stage C (preference) runs when
-// the preference row has a nonzero coefficient; the peak and continuity stages
-// are no-ops until Tasks 9-10 wire them.
+// the preference row has a nonzero coefficient, stage D (continuity) when a
+// c_min > 0 battery exists; the peak stage is a no-op until Task 10 wires it.
 func (mo *model) run(s settings.Settings) (Result, error) {
 	var deadline time.Time
 	if s.TimeLimit != nil {
@@ -79,11 +79,34 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 			objective(mo.prefRow, psol) > objective(mo.prefRow, sol) {
 			sol = psol
 			status = decidingStatus(status, psol)
+			// Pin the achieved preference (spec 6): Task 8 deliberately left it
+			// unpinned so the later stages could not trade it away. It only applies
+			// when the preference stage retained a solution; a stage that improved
+			// nothing has no preference value worth freezing.
+			mo.pinLower(mo.prefRow, objective(mo.prefRow, sol))
 		}
 	}
 
-	// Stage B (peak) and D (continuity) run here once Tasks 9-10 populate their
-	// rows; they retain through the same deciding-status rule.
+	// Stage B (peak) runs here once Task 10 populates peakRow; it retains through
+	// the same deciding-status rule.
+
+	// Stage D: continuity (T4, spec 5.3). Runs when a c_min > 0 battery exists
+	// (startRow is nonzero), under the cost bound and, when the preference stage
+	// retained, the preference bound. The objective is the integral count of charge
+	// starts, so gap 0 asks for proven optimality and nothing is normalized away.
+	if hasNonzero(mo.startRow) {
+		dsol, err := mo.stage(mo.startCoeffs(), 0, deadline, s)
+		if err != nil {
+			return Result{}, err
+		}
+		// Retain only a schedule with strictly fewer sessions than the incumbent.
+		// The earlier stages leave start[i][t] free, so its value there is not the
+		// real transition count; count from the charging power instead.
+		if dsol != nil && dsol.HasSolution() && mo.countStarts(dsol) < mo.countStarts(sol) {
+			sol = dsol
+			status = decidingStatus(status, dsol)
+		}
+	}
 
 	// Final safety pass (spec 6.1): never report a schedule that breaks the model.
 	return mo.finalizeStatus(sol, status), nil
@@ -100,6 +123,41 @@ func hasNonzero(row []coef) bool {
 		}
 	}
 	return false
+}
+
+// startCoeffs returns the T4 continuity objective as a dense coefficient vector of
+// length NumVars: minimize the number of charge starts. startRow holds -1 on every
+// start column (the model is a maximize model), so maximizing it minimizes the
+// count. The coefficients stay integral; no normalization is applied.
+func (mo *model) startCoeffs() []float64 {
+	costs := make([]float64, mo.m.NumVars())
+	for _, c := range mo.startRow {
+		costs[c.col] += c.val
+	}
+	return costs
+}
+
+// countStarts counts charge sessions in a solution across the c_min > 0 batteries:
+// each step whose charging power rises from zero. Step 0 is not a start when the
+// device is active (c_active means it enters the horizon already charging, spec 7).
+// The earlier stages leave start[i][t] free, so the real transition count is read
+// from the charging power rather than from that variable.
+func (mo *model) countStarts(sol *highs.Solution) int {
+	n := 0
+	for i, b := range mo.prob.Batteries {
+		if mo.zC[i] == nil {
+			continue
+		}
+		prev := 0.0
+		for t := 0; t < mo.T; t++ {
+			v := sol.Value(mo.c[i][t])
+			if v > 1e-6 && prev <= 1e-6 && !(t == 0 && b.CActive) {
+				n++
+			}
+			prev = v
+		}
+	}
+	return n
 }
 
 // decidingStatus returns the model status that decides the reported answer. Spec

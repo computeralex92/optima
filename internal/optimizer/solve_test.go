@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/alex/optimizer-v2/internal/settings"
 	"github.com/bartolsthoorn/gohighs/highs"
@@ -321,5 +322,121 @@ func TestSolve022PureCost(t *testing.T) {
 	}
 	if math.Abs(*got.ObjectiveValue-200.38) > 1e-3 {
 		t.Fatalf("objective %v, want 200.38", *got.ObjectiveValue)
+	}
+}
+
+// continuityInput is one c_min > 0 battery whose SOC goals (s[1] >= 800, s[5] >=
+// 1500) are jointly reachable in one contiguous window ([0,1,2] charges 500 Wh at
+// 900 s >> 1500 Wh total). Flat prices make that window exactly as cheap as the
+// fragmented schedule ([0,1,5], c_min forces 250 Wh granularity) the cost stage
+// settles on, so stage D can trade the split for one session without spending
+// money. active sets c_active, which means the device enters the horizon charging.
+func continuityInput(active bool) Input {
+	ac := active
+	grid := true
+	noGrid := false
+	return Input{
+		Batteries: []Battery{{
+			ChargeFromGrid: &grid, DischargeToGrid: &noGrid,
+			SCapacity: f64(5000), SMin: f64(0), SMax: f64(5000), SInitial: f64(0),
+			CMin: f64(1000), CMax: f64(2000), DMax: f64(0), PA: f64(0),
+			CActive: &ac, SGoal: []float64{0, 800, 0, 0, 0, 1500},
+		}},
+		Series: Series{
+			DT: []int{900, 900, 900, 900, 900, 900},
+			GT: []float64{0, 0, 0, 0, 0, 0}, FT: []float64{0, 0, 0, 0, 0, 0},
+			PN: []float64{0.0003, 0.0003, 0.0003, 0.0003, 0.0003, 0.0003},
+			PE: []float64{0, 0, 0, 0, 0, 0},
+		},
+		EtaC: f64(1), EtaD: f64(1),
+	}
+}
+
+// chargeSessions counts 0 -> positive transitions in charging power. Step 0 is not
+// a start when the device is active (c_active: it enters the horizon charging).
+func chargeSessions(c []float64, active bool) int {
+	n := 0
+	prev := 0.0
+	for t, v := range c {
+		if v > 1e-6 && prev <= 1e-6 && !(t == 0 && active) {
+			n++
+		}
+		prev = v
+	}
+	return n
+}
+
+// TestContinuityReducesChargeStarts is the stage-D known answer: the cost stage
+// splits the charges across two sessions, and continuity, pinned to the same cost,
+// collapses them into one. The clean objective must still be the cost optimum, so
+// the stage cannot have spent money to do it.
+func TestContinuityReducesChargeStarts(t *testing.T) {
+	got, err := Solve(continuityInput(false), settings.Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "Optimal" {
+		t.Fatalf("status %s, want Optimal", got.Status)
+	}
+	if got.ObjectiveValue == nil {
+		t.Fatal("objective_value is nil")
+	}
+	// 1500 Wh at the flat 0.0003 price -> clean cost -0.45.
+	if math.Abs(*got.ObjectiveValue-(-0.45)) > 1e-6 {
+		t.Fatalf("objective %v, want -0.45: continuity must not spend money", *got.ObjectiveValue)
+	}
+	if n := chargeSessions(got.Batteries[0].ChargingPower, false); n != 1 {
+		t.Fatalf("charge sessions = %d, want 1; charging=%v", n, got.Batteries[0].ChargingPower)
+	}
+}
+
+// TestContinuityActiveDeviceHasNoStarts: with c_active the device enters the horizon
+// charging, so a schedule that keeps it on from step 0 counts zero starts. The same
+// cost-optimal collapse as above reaches it.
+func TestContinuityActiveDeviceHasNoStarts(t *testing.T) {
+	got, err := Solve(continuityInput(true), settings.Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "Optimal" {
+		t.Fatalf("status %s, want Optimal", got.Status)
+	}
+	c := got.Batteries[0].ChargingPower
+	if c[0] <= 1e-6 {
+		t.Fatalf("active device does not charge from step 0; charging=%v", c)
+	}
+	if n := chargeSessions(c, true); n != 0 {
+		t.Fatalf("counted starts = %d, want 0; charging=%v", n, c)
+	}
+}
+
+// TestContinuitySpendsNoMoney pins the stage-D bound: the clean value of the full
+// cascade equals the cost stage's own optimum on the same model. Continuity only
+// rearranges charging under the bound, never trades money for fewer starts.
+func TestContinuitySpendsNoMoney(t *testing.T) {
+	in := continuityInput(false)
+	p, err := in.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mo := buildModel(p)
+	csol, err := mo.stage(mo.costCoeffs(), 0, time.Time{}, settings.Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	costValue := mo.cleanValue(csol)
+
+	got, err := Solve(in, settings.Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ObjectiveValue == nil {
+		t.Fatal("objective_value is nil")
+	}
+	if math.Abs(*got.ObjectiveValue-costValue) > 1e-6 {
+		t.Fatalf("continuity objective %v != cost optimum %v", *got.ObjectiveValue, costValue)
+	}
+	if n := chargeSessions(got.Batteries[0].ChargingPower, false); n != 1 {
+		t.Fatalf("charge sessions = %d, want 1", n)
 	}
 }

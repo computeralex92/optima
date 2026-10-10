@@ -559,7 +559,7 @@ func buildModel(p Problem) *model {
 		}
 	}
 	for i := range p.Batteries {
-		if mo.start[i] == nil {
+		if mo.zC[i] == nil {
 			continue
 		}
 		for t := 0; t < T; t++ {
