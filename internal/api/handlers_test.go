@@ -83,6 +83,23 @@ func TestChargeScheduleRejectsBadInput(t *testing.T) {
 	}
 }
 
+// TestChargeScheduleRejectsOversizedBody pins the http.MaxBytesReader cap: a
+// body larger than maxRequestBody is rejected with 400, never buffered whole.
+func TestChargeScheduleRejectsOversizedBody(t *testing.T) {
+	srv := NewServer(settings.Settings{})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/optimize/charge-schedule",
+		bytes.NewReader(make([]byte, maxRequestBody+1)))
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code %d, want 400 (body cap)", rec.Code)
+	}
+	if rec.Body.Len() == 0 {
+		t.Fatal("empty body")
+	}
+}
+
 // TestChargeScheduleSolves posts the golden case 024 request and expects a 200
 // with an Optimal status and a non-null objective_value.
 func TestChargeScheduleSolves(t *testing.T) {

@@ -20,6 +20,10 @@ type handler struct {
 	settings settings.Settings
 }
 
+// maxRequestBody caps a charge-schedule body at 8 MiB. The largest vendored case
+// is ~90 KB, so this is a generous hard stop, not a working limit.
+const maxRequestBody = 8 << 20
+
 // healthResponse is the fixed health body (spec section 3). A struct, not a
 // map, so the key order matches the contract byte for byte.
 type healthResponse struct {
@@ -48,6 +52,7 @@ func (h *handler) health(w http.ResponseWriter, _ *http.Request) {
 // successful solve it emits exactly one {"solve": {...}} line to stdout and,
 // when configured, appends a slow-request line (spec 9).
 func (h *handler) chargeSchedule(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{

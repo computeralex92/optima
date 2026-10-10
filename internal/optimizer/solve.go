@@ -64,8 +64,14 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 	// later stage retains its solution (spec 6.1: the last retained stage decides).
 	status := sol.Status
 
-	// Pin the achieved cost so later stages cannot trade it away.
-	mo.pinLower(mo.costRow, objective(mo.costRow, sol))
+	// Pin the achieved cost so later stages cannot trade it away, allowing the
+	// preference and continuity stages to spend up to OPTIMIZER_PREFERENCE_BUDGET
+	// (spec 8) when either runs; with the default budget 0 the slack stays pinEps.
+	slack := pinEps
+	if hasNonzero(mo.prefRow) || hasNonzero(mo.startRow) {
+		slack = costBoundSlack(s.PreferenceBudget)
+	}
+	mo.pinLower(mo.costRow, objective(mo.costRow, sol), slack)
 
 	// Stage B: peak (T2, spec 5.3). Runs when a peak strategy is active (peakRow
 	// nonzero), under the cost bound, at gap 0. Maximizing the negated peak row
@@ -92,9 +98,10 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 	// Stage C: preference (T3, spec 5.3). Runs only when some T3 term is actually
 	// active (a nonzero preference coefficient), under the cost bound, at gap 0
 	// (proven-optimal tie break). The objective is normalized to unit magnitude so
-	// its gap is meaningful (spec 6.2). It can never spend money: the cost pin
-	// bounds it, and a worse or unsolved stop leaves the cost-stage solution in
-	// place, and with it the cost stage's deciding status.
+	// its gap is meaningful (spec 6.2). It can spend at most the cost pin's slack
+	// (pinEps, or OPTIMIZER_PREFERENCE_BUDGET when the budget is raised); a worse
+	// or unsolved stop leaves the cost-stage solution in place, and with it the
+	// cost stage's deciding status.
 	if hasNonzero(mo.prefRow) {
 		t0 := time.Now()
 		psol, err := mo.stage(mo.prefCoeffs(), 0, deadline, s)
@@ -115,14 +122,15 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 		pv := objective(mo.prefRow, sol)
 		mo.prefAfterC = &pv
 		mo.prefSummary = strconv.FormatFloat(pv, 'g', -1, 64)
-		mo.pinLower(mo.prefRow, pv)
+		mo.pinLower(mo.prefRow, pv, pinEps)
 	}
 
 	// Stage D: continuity (T4, spec 5.3). Runs when a c_min > 0 battery exists
-	// (startRow is nonzero), under the cost bound and, when the preference stage
-	// retained, the preference bound. The objective is the integral count of charge
-	// starts, so gap 0 asks for proven optimality and nothing is normalized away.
-	if hasNonzero(mo.startRow) {
+	// (startRow is nonzero) and the incumbent still has a reducible start count,
+	// under the cost bound and, when the preference stage retained, the preference
+	// bound. The objective is the integral count of charge starts, so gap 0 asks
+	// for proven optimality and nothing is normalized away.
+	if hasNonzero(mo.startRow) && mo.canReduceStarts(sol) {
 		t0 := time.Now()
 		dsol, err := mo.stage(mo.startCoeffs(), 0, deadline, s)
 		mo.stages["continuity"] = time.Since(t0).Seconds()
@@ -161,11 +169,7 @@ func hasNonzero(row []coef) bool {
 // start column (the model is a maximize model), so maximizing it minimizes the
 // count. The coefficients stay integral; no normalization is applied.
 func (mo *model) startCoeffs() []float64 {
-	costs := make([]float64, mo.m.NumVars())
-	for _, c := range mo.startRow {
-		costs[c.col] += c.val
-	}
-	return costs
+	return mo.dense(mo.startRow)
 }
 
 // countStarts counts charge sessions in a solution across the c_min > 0 batteries:
@@ -175,20 +179,48 @@ func (mo *model) startCoeffs() []float64 {
 // from the charging power rather than from that variable.
 func (mo *model) countStarts(sol *highs.Solution) int {
 	n := 0
+	for i := range mo.prob.Batteries {
+		if mo.zC[i] == nil {
+			continue
+		}
+		n += mo.batteryStarts(sol, i)
+	}
+	return n
+}
+
+// batteryStarts is countStarts for one eligible battery.
+func (mo *model) batteryStarts(sol *highs.Solution, i int) int {
+	b := mo.prob.Batteries[i]
+	n := 0
+	prev := 0.0
+	for t := 0; t < mo.T; t++ {
+		v := sol.Value(mo.c[i][t])
+		if v > 1e-6 && prev <= 1e-6 && !(t == 0 && b.CActive) {
+			n++
+		}
+		prev = v
+	}
+	return n
+}
+
+// canReduceStarts reports whether the continuity stage can still lower the start
+// count: it can only help when some eligible battery has more starts than its
+// floor of 1 without c_active (an already-running device can reach 0). Skipping
+// the stage when every battery is already minimal saves a MIP solve (spec 6).
+func (mo *model) canReduceStarts(sol *highs.Solution) bool {
 	for i, b := range mo.prob.Batteries {
 		if mo.zC[i] == nil {
 			continue
 		}
-		prev := 0.0
-		for t := 0; t < mo.T; t++ {
-			v := sol.Value(mo.c[i][t])
-			if v > 1e-6 && prev <= 1e-6 && !(t == 0 && b.CActive) {
-				n++
-			}
-			prev = v
+		floor := 1
+		if b.CActive {
+			floor = 0
+		}
+		if mo.batteryStarts(sol, i) > floor {
+			return true
 		}
 	}
-	return n
+	return false
 }
 
 // decidingStatus returns the model status that decides the reported answer. Spec
@@ -208,21 +240,14 @@ func decidingStatus(prev highs.ModelStatus, retained *highs.Solution) highs.Mode
 // maximize model), so maximizing it minimizes the sum of the active horizon peaks.
 // No normalization is applied: the coefficients are already unit magnitude.
 func (mo *model) peakCoeffs() []float64 {
-	costs := make([]float64, mo.m.NumVars())
-	for _, c := range mo.peakRow {
-		costs[c.col] += c.val
-	}
-	return costs
+	return mo.dense(mo.peakRow)
 }
 
 // prefCoeffs returns the T3 preference objective as a dense coefficient vector of
 // length NumVars, normalized to unit magnitude (spec 6.2) so the stage's gap
 // tolerance is meaningful. A zero row is returned unchanged.
 func (mo *model) prefCoeffs() []float64 {
-	costs := make([]float64, mo.m.NumVars())
-	for _, c := range mo.prefRow {
-		costs[c.col] += c.val
-	}
+	costs := mo.dense(mo.prefRow)
 	peak := 0.0
 	for _, v := range costs {
 		if a := math.Abs(v); a > peak {
@@ -249,6 +274,9 @@ func (mo *model) finalize(sol *highs.Solution) Result {
 // the last retained stage's status (spec 6.1), which is not necessarily the
 // retained solution's own status when a later stage declined to retain.
 func (mo *model) finalizeStatus(sol *highs.Solution, st highs.ModelStatus) Result {
+	// The safety pass is what stops a no-incumbent HiGHS stop (HasSolution() is true
+	// on TimeLimit) from being reported Feasible: a full-length all-zero vector only
+	// passes when every GT == FT, a degenerate but legitimately valid schedule.
 	if !mo.safetyCheck(sol) {
 		return mo.assemble(nil, "Not Solved")
 	}
@@ -328,15 +356,23 @@ func objective(row []coef, sol *highs.Solution) float64 {
 	return v
 }
 
-// pinLower appends the bound row sum(row*x) >= value-pinEps, freezing a
-// maximized stage's achieved value for the stages that follow. Repeated columns
-// are merged so the gohighs duplicate-merge (last wins) cannot drop a term.
-func (mo *model) pinLower(row []coef, value float64) {
+// pinLower appends the bound row sum(row*x) >= value-slack, freezing a maximized
+// stage's achieved value for the stages that follow. Repeated columns are merged
+// so the gohighs duplicate-merge (last wins) cannot drop a term.
+func (mo *model) pinLower(row []coef, value, slack float64) {
 	var r coefRow
 	for _, c := range row {
 		r.add(c.col, c.val)
 	}
-	mo.m.AddSparseRow(value-pinEps, r.cols, r.vals, highs.Inf())
+	mo.m.AddSparseRow(value-slack, r.cols, r.vals, highs.Inf())
+}
+
+// costBoundSlack is the slack allowed on the stage-A cost value when the
+// preference and continuity stages run. Those stages may trade up to
+// OPTIMIZER_PREFERENCE_BUDGET of currency (spec 8); the default budget of 0
+// keeps the slack at pinEps and the stages cost neutral.
+func costBoundSlack(budget float64) float64 {
+	return math.Max(pinEps, budget)
 }
 
 // mapStatus maps a HiGHS model status to the response status enum (spec 6.1).

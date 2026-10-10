@@ -51,6 +51,20 @@ Make targets: `build`, `test`, `run`, `lint`, `docker`
    `-lstdc++ … -lz`). The runtime stage is `debian:bookworm-slim` because HiGHS needs
    glibc and libstdc++ — not `scratch`.
 
+## Validator divergences from `openapi.yaml`
+
+The vendored `openapi.yaml` does not pin every numeric edge, and the validator
+deliberately diverges from a literal reading in four places. Do not "fix" these
+back:
+
+1. Negative `p_N`, `p_E` and `p_a` are accepted: real day-ahead prices and
+   export tariffs go negative.
+2. `dt` must be `> 0` (a zero or negative step has no meaning in `h[t] = dt/3600`).
+3. Empty series arrays are rejected: every `time_series` array needs at least one
+   element, and all must match `gt`'s length.
+4. `eta_c` / `eta_d` must be in `(0, 1]` (a zero or above-one efficiency is not
+   physical).
+
 ## API mapping to the upstream service
 
 The vendored `openapi.yaml` is the source of truth; both endpoints match the original

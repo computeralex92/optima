@@ -2,15 +2,21 @@ package optimizer
 
 import "github.com/bartolsthoorn/gohighs/highs"
 
+// dense expands a sparse coefficient row into a dense vector of length NumVars,
+// summing repeated columns. All stage objectives are built this way.
+func (mo *model) dense(row []coef) []float64 {
+	costs := make([]float64, mo.m.NumVars())
+	for _, c := range row {
+		costs[c.col] += c.val
+	}
+	return costs
+}
+
 // costCoeffs returns the T1 cost objective as a dense coefficient vector of length
 // NumVars (spec 5.3). The sparse costRow built by buildModel is the single source
 // (ruling R1); this expands it, summing repeated columns.
 func (mo *model) costCoeffs() []float64 {
-	costs := make([]float64, mo.m.NumVars())
-	for _, c := range mo.costRow {
-		costs[c.col] += c.val
-	}
-	return costs
+	return mo.dense(mo.costRow)
 }
 
 // cleanValue recomputes the reported objective from a solution (spec 5.3): grid
