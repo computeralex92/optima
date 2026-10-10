@@ -1,4 +1,6 @@
-.PHONY: build test run lint
+.PHONY: build test run lint docker
+
+CONTAINER_ENGINE ?= podman
 
 build:
 	go build ./...
@@ -11,3 +13,6 @@ run:
 
 lint:
 	go vet ./...
+
+docker:
+	${CONTAINER_ENGINE} build -t optimizer-v2 .
