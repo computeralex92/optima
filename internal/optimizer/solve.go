@@ -79,12 +79,15 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 			objective(mo.prefRow, psol) > objective(mo.prefRow, sol) {
 			sol = psol
 			status = decidingStatus(status, psol)
-			// Pin the achieved preference (spec 6): Task 8 deliberately left it
-			// unpinned so the later stages could not trade it away. It only applies
-			// when the preference stage retained a solution; a stage that improved
-			// nothing has no preference value worth freezing.
-			mo.pinLower(mo.prefRow, objective(mo.prefRow, sol))
 		}
+		// Pin the achieved preference (spec 6/7) after stage C runs, whether or not
+		// it improved: the incumbent's preference value is a floor the later stages
+		// cannot trade away. Task 8 deliberately left it unpinned so the peak and
+		// continuity stages of Tasks 9-10 could not spend preference value. The
+		// recorded value is a seam for the regression in solve_test.go.
+		pv := objective(mo.prefRow, sol)
+		mo.prefAfterC = &pv
+		mo.pinLower(mo.prefRow, pv)
 	}
 
 	// Stage B (peak) runs here once Task 10 populates peakRow; it retains through

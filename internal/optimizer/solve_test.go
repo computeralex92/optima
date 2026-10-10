@@ -440,3 +440,82 @@ func TestContinuitySpendsNoMoney(t *testing.T) {
 		t.Fatalf("charge sessions = %d, want 1", n)
 	}
 }
+
+// preferenceRegressionInput is a request with a nonzero preference row
+// (discharge_before_import weights grid import by 5e-6*(T-t)) AND a c_min > 0
+// battery, so stage C runs and stage D is eligible. c_min == c_max makes each
+// active step charge a fixed 500 Wh, so the early goal (s[1] >= 800) forces two
+// early steps and the remaining step goes as late as the preference wants. The
+// cost stage settles on that late schedule, so stage C confirms rather than
+// improves, which is exactly the case the preference pin must still cover.
+func preferenceRegressionInput() Input {
+	grid, noGrid := true, false
+	return Input{
+		Strategy: Strategy{ChargingStrategy: "none", DischargingStrategy: "discharge_before_import"},
+		Batteries: []Battery{{
+			ChargeFromGrid: &grid, DischargeToGrid: &noGrid,
+			SCapacity: f64(5000), SMin: f64(0), SMax: f64(5000), SInitial: f64(0),
+			CMin: f64(2000), CMax: f64(2000), DMax: f64(0), PA: f64(0),
+			SGoal: []float64{0, 800, 0, 0, 0, 1500},
+		}},
+		Series: Series{
+			DT: []int{900, 900, 900, 900, 900, 900},
+			GT: []float64{0, 0, 0, 0, 0, 0}, FT: []float64{0, 0, 0, 0, 0, 0},
+			PN: []float64{0.003, 0.003, 0.003, 0.003, 0.003, 0.003},
+			PE: []float64{0, 0, 0, 0, 0, 0},
+		},
+		EtaC: f64(1), EtaD: f64(1),
+	}
+}
+
+// prefFromGridImport recomputes the discharge_before_import preference objective
+// from the reported grid import: prefRow adds, once per battery,
+// n[t] * (-minImportPrice * 5e-6 * (T-t)) for every step.
+func prefFromGridImport(imp []float64, minPrice float64, nb int) float64 {
+	T := len(imp)
+	v := 0.0
+	for b := 0; b < nb; b++ {
+		for t := 0; t < T; t++ {
+			v += imp[t] * (-minPrice * 5e-6 * float64(T-t))
+		}
+	}
+	return v
+}
+
+// TestContinuityKeepsPreferenceValue is the regression for the preference pin:
+// stage D must not lower the preference value stage C achieved. The pin is added
+// after stage C whether or not it improved, so the merged-into-one-session
+// alternative that continuity would otherwise pick cannot win. Without the pin the
+// cost bound alone lets stage D move the last charge from t=5 to t=2 (equal cost,
+// fewer starts) and the reported preference drops.
+func TestContinuityKeepsPreferenceValue(t *testing.T) {
+	in := preferenceRegressionInput()
+	p, err := in.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mo := buildModel(p)
+	got, err := mo.run(settings.Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mo.prefAfterC == nil {
+		t.Fatal("preference stage did not run; nothing was recorded")
+	}
+	// One battery, so the preference row is a single copy of the import weighting.
+	final := prefFromGridImport(got.GridImport, minf64(p.Series.PN), len(p.Batteries))
+	if final < *mo.prefAfterC-pinEps {
+		t.Fatalf("stage D lowered preference: final %v < post-stage-C %v", final, *mo.prefAfterC)
+	}
+}
+
+// minf64 is minFloat for a concrete slice, kept local to the test.
+func minf64(v []float64) float64 {
+	m := v[0]
+	for _, x := range v {
+		if x < m {
+			m = x
+		}
+	}
+	return m
+}

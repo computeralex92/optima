@@ -75,6 +75,11 @@ type model struct {
 	penaltyBase float64
 
 	costRow, prefRow, peakRow, startRow []coef
+
+	// prefAfterC is the preference value stage C reached, recorded unconditionally
+	// when the preference stage runs. It is a seam for the in-package regression
+	// that stage D cannot trade that value away; nil when no preference stage ran.
+	prefAfterC *float64
 }
 
 // buildModel adds every variable and structural constraint from spec 5.2. Stage
