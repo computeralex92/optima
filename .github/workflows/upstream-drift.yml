@@ -1,0 +1,51 @@
+name: upstream-drift
+
+# Weekly check that the vendored contract (openapi.yaml + test_cases/) still
+# matches upstream main. On drift, open or update one issue. Never auto-merges.
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Check upstream for drift
+        id: drift
+        run: |
+          {
+            echo "report<<EOF"
+            bash scripts/upstream-drift.sh
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+      - name: Ensure the label exists
+        if: steps.drift.outputs.report != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh label create upstream-drift --color FBCA04 2>/dev/null || true
+      - name: Open or update the drift issue
+        if: steps.drift.outputs.report != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPORT: ${{ steps.drift.outputs.report }}
+        run: |
+          num=$(gh issue list --label upstream-drift --state open --json number --jq '.[0].number')
+          if [ -z "$num" ]; then
+            gh issue create --label upstream-drift --title "Upstream contract drift" --body "$REPORT"
+          else
+            gh issue edit "$num" --body "$REPORT"
+          fi
+      - name: Close a stale drift issue
+        if: steps.drift.outputs.report == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for num in $(gh issue list --label upstream-drift --state open --json number --jq '.[].number'); do
+            gh issue close "$num" --comment "Upstream is in sync with the vendored revision again."
+          done
