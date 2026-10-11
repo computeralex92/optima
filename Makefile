@@ -17,7 +17,7 @@ lint:
 	go vet ./...
 
 docker:
-	${CONTAINER_ENGINE} build -t optimizer-v2 .
+	${CONTAINER_ENGINE} build -t optima .
 
 vendor-upstream: ## Re-vendor openapi.yaml + test_cases from upstream at REV
 	@set -e; \

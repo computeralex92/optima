@@ -1,4 +1,4 @@
-# optimizer-v2
+# optima
 
 A ground-up rewrite of the [evcc charging optimizer](https://github.com/evcc-io/optimizer)
 in Go, backed by [HiGHS](https://highs.dev) instead of PuLP/CBC.
@@ -19,8 +19,8 @@ go run ./cmd/optimizer            # listens on :7050
 Container (needs an OCI engine, podman or docker):
 
 ```sh
-make docker                       # podman build -t optimizer-v2 .
-podman run --rm -p 7050:7050 optimizer-v2
+make docker                       # podman build -t optima .
+podman run --rm -p 7050:7050 optima
 ```
 
 Check it:
@@ -78,6 +78,9 @@ The vendored `openapi.yaml` is the source of truth; both endpoints match the ori
 | `status` values | same | `Optimal, Feasible, Infeasible, Unbounded, Undefined, Not Solved` |
 | `objective_value` | same | clean economic value; `null` on non-solved status; all arrays `[]` never `null` |
 | env settings | same names | `OPTIMIZER_*` (`TIME_LIMIT`, `GAP_ABS`, `GAP_SHARE`, `PREFERENCE_BUDGET`, `NUM_THREADS`, …) |
+
+See [`docs/compatibility.md`](docs/compatibility.md) for the compatibility contract,
+how upstream changes are absorbed, and the registry of deliberate divergences.
 
 ## Improvements over the baseline
 
