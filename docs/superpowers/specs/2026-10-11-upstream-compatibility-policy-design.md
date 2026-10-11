@@ -6,7 +6,7 @@
 
 ## 1. Problem
 
-`optimizer-v2` is a Go drop-in replacement for the upstream `evcc-io/optimizer`
+`optima` is a Go drop-in replacement for the upstream `evcc-io/optimizer`
 service. The compatibility surface — `openapi.yaml` and `test_cases/*.json` — was
 vendored from upstream **once** (commit `5940aa8`), from an unrecorded upstream
 revision. Today:
