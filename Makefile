@@ -21,6 +21,9 @@ docker:
 
 vendor-upstream: ## Re-vendor openapi.yaml + test_cases from upstream at REV
 	@set -e; \
+	REPO='$(REPO)'; REV='$(REV)'; \
+	: "$${REPO:?upstream.lock must define REPO}"; \
+	: "$${REV:?upstream.lock must define REV}"; \
 	tmp=$$(mktemp -d); \
 	trap 'rm -rf "$$tmp"' EXIT; \
 	git init -q "$$tmp"; \

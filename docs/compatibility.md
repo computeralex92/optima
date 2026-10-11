@@ -48,15 +48,15 @@ Triage an opened drift issue:
 Each row is an intentional deviation from upstream. All are permitted by the conflict
 rule and pinned by a test.
 
-| id | surface | what differs | why | pinned by |
-|---|---|---|---|---|
-| D1 | validation | `p_N`, `p_E`, `p_a` may be negative | day-ahead prices and export tariffs go negative; `gt` and `ft` still require `>= 0` | `internal/optimizer/validate_test.go` |
-| D2 | validation | `dt` must be `> 0` | a zero/negative step has no meaning in `h[t] = dt/3600` | `internal/optimizer/validate_test.go` |
-| D3 | validation | empty series rejected; every `time_series` array must match `gt`'s length | an empty horizon cannot be solved | `TestValidateRejectsEmptySeries` |
-| D4 | validation | `eta_c`/`eta_d` must be in `(0, 1]` | a zero or above-one efficiency is not physical | `TestValidateRejectsZeroEta` |
-| D5 | schedule | peak-profile smoothing: a flatter profile at equal-or-better objective | upstream pins only the horizon maximum, so a plateau and a jagged profile score alike | `TestSolve024PeakFlat`, `TestPeakStagePinsActivePeak` |
-| D6 | schedule | proven-optimal tie-breaks (the preference stage runs at zero MIP gap) | upstream stops at an approximate LP floor | `TestSolve024CostObjective`, `TestContinuityKeepsPreferenceValue` |
-| D7 | schedule | continuity is a real objective under hard cost, peak and preference bounds | never trades money or preference value for a nicer schedule | `TestContinuityReducesChargeStarts`, `TestContinuitySpendsNoMoney`, `TestContinuityKeepsPreferenceValue` |
+| id | surface | what differs | why | pinned by | upstream-compat impact |
+|---|---|---|---|---|---|
+| D1 | validation | `p_N`, `p_E`, `p_a` may be negative | day-ahead prices and export tariffs go negative; `gt` and `ft` still require `>= 0` | `internal/optimizer/validate_test.go` | accepts a superset of the schema; cannot reject a valid request |
+| D2 | validation | `dt` must be `> 0` | a zero/negative step has no meaning in `h[t] = dt/3600` | `internal/optimizer/validate_test.go` | rejects `dt <= 0` only; no vendored upstream case sends it |
+| D3 | validation | empty series rejected; every `time_series` array must match `gt`'s length | an empty horizon cannot be solved | `TestValidateRejectsEmptySeries`, `TestValidateSeriesLengthMismatch` | rejects empty or mismatched series only; every vendored case passes |
+| D4 | validation | `eta_c`/`eta_d` must be in `(0, 1]` | a zero or above-one efficiency is not physical | `TestValidateRejectsZeroEta`, `TestValidateCollectsEveryFailure` | rejects `eta` outside the physical range; upstream defaults to 0.95 |
+| D5 | schedule | peak-profile smoothing: a flatter profile at equal-or-better objective | upstream pins only the horizon maximum, so a plateau and a jagged profile score alike | `TestSolve024PeakFlat`, `TestPeakStagePinsActivePeak` | schedule choice only; objective never worse than upstream |
+| D6 | schedule | proven-optimal tie-breaks (the preference stage runs at zero MIP gap) | upstream stops at an approximate LP floor | `TestSolve024CostObjective`, `TestContinuityKeepsPreferenceValue` | schedule choice only; objective never worse than upstream |
+| D7 | schedule | continuity is a real objective under hard cost, peak and preference bounds | never trades money or preference value for a nicer schedule | `TestContinuityReducesChargeStarts`, `TestContinuitySpendsNoMoney`, `TestContinuityKeepsPreferenceValue` | schedule choice only; objective never worse than upstream |
 
 Every schedule divergence (D5–D7) is additionally bound by `TestConformance`'s
 match-or-beat acceptance: the schedule we return may differ from upstream's, but its

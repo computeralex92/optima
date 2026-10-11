@@ -36,8 +36,9 @@ Solve a vendored case and render the schedule:
 go run ./cmd/client test_cases/009-discharge-before-import.json
 ```
 
-Make targets: `build`, `test`, `run`, `lint`, `docker`
-(`CONTAINER_ENGINE=podman` by default, override as needed).
+Make targets: `build`, `test`, `run`, `lint`, `docker`, `vendor-upstream`
+(`CONTAINER_ENGINE=podman` by default, override as needed). `make vendor-upstream`
+refreshes the vendored upstream contract — see [`docs/compatibility.md`](docs/compatibility.md).
 
 ## Build caveats
 
