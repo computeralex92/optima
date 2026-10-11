@@ -134,4 +134,10 @@ is the single acceptance gate. Any PR that absorbs upstream drift must pass it.
 ## 7. Out of scope (future)
 
 - Approach B (git remote mirror, upstream Python tests in CI, auto re-vendor PRs).
+- Renovate as the drift detector. The hosted Mend app cannot re-vendor
+  (`postUpgradeTasks`/`allowedPostUpgradeCommands` are self-hosted only), so it can
+  bump `upstream.lock`'s `REV` but not refresh `openapi.yaml`/`test_cases` — it would
+  need an extra consistency gate to be correct, i.e. more moving parts than the
+  drift workflow. Upgrade path if PR UX is preferred over an issue: run Renovate
+  self-hosted with `postUpgradeTasks.commands = ["make vendor-upstream REV={{{newDigest}}}"]`.
 - Any change to solver behavior, the wire contract, or existing tests.
