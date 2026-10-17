@@ -5,7 +5,7 @@
 # g++ and zlib1g-dev are required (its linux link flags include -lstdc++ -lz).
 FROM golang:1.27-bookworm AS build
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        g++ zlib1g-dev \
+        g++ zlib1g-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -18,10 +18,11 @@ RUN CGO_ENABLED=1 go build \
         -ldflags '-linkmode external -extldflags "-static"' \
         -o /out/optimizer ./cmd/optimizer
 
-# scratch: nothing but the static binary. UID 65534 (nobody) is numeric because
-# scratch has no /etc/passwd.
+# scratch: the static binary plus the CA bundle for outbound TLS. UID 65534
+# (nobody) is numeric because scratch has no /etc/passwd.
 FROM scratch
 COPY --from=build /out/optimizer /optimizer
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 EXPOSE 7050
 USER 65534:65534
 ENTRYPOINT ["/optimizer"]
