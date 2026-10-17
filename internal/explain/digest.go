@@ -52,10 +52,10 @@ func Digest(in Input) string {
 	grid := req.Grid
 	violations := res.LimitViolations
 	notes := make([]string, 0, 4)
-	if grid.PmaxImp != nil {
+	if grid.PmaxImp != nil && *grid.PmaxImp != 0 {
 		notes = append(notes, "grid import limited to "+kwh(*grid.PmaxImp)+" kW")
 	}
-	if grid.PmaxExp != nil {
+	if grid.PmaxExp != nil && *grid.PmaxExp != 0 {
 		notes = append(notes, "grid export limited to "+kwh(*grid.PmaxExp)+" kW")
 	}
 	if violations.GridImportLimitExceeded {
@@ -200,6 +200,13 @@ func pyFloat(v float64) string {
 }
 
 func ranges(series []float64, labels []string) []string {
+	limit := len(labels) - 1
+	if limit < 0 {
+		limit = 0
+	}
+	if len(series) > limit {
+		series = series[:limit]
+	}
 	out := make([]string, 0)
 	start := -1
 	for i := 0; i <= len(series); i++ {

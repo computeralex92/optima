@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"time"
@@ -103,7 +104,8 @@ func (h *handler) explainPlan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	text, usage, err := h.explainClient.Complete(r.Context(), system, explain.Digest(payload))
+	user := "Explain this plan.\n\n" + explain.Digest(payload)
+	text, usage, err := h.explainClient.Complete(r.Context(), system, user)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, errorResponse{Message: err.Error()})
 		return
@@ -111,7 +113,7 @@ func (h *handler) explainPlan(w http.ResponseWriter, r *http.Request) {
 
 	logExplain(explainLog{
 		Client:  r.UserAgent(),
-		Elapsed: float64(time.Since(start).Milliseconds()) / 1000,
+		Elapsed: math.Round(time.Since(start).Seconds()*1000) / 1000,
 		Steps:   len(in.Series.DT),
 		Tokens:  usage.TotalTokens,
 	})

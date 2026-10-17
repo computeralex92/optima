@@ -101,7 +101,7 @@ expose keys.
   "model": "<OPTIMIZER_LLM_MODEL>",
   "messages": [
     {"role": "system", "content": "<system prompt>"},
-    {"role": "user", "content": "<digest>"}
+    {"role": "user", "content": "Explain this plan.\n\n<digest>"}
   ],
   "max_tokens": 1500
 }
@@ -123,7 +123,7 @@ provider accepts it.
   "model": "<deployment>",
   "messages": [
     {"role": "system", "content": "<system prompt>"},
-    {"role": "user", "content": "<digest>"}
+    {"role": "user", "content": "Explain this plan.\n\n<digest>"}
   ],
   "reasoning_effort": "low",
   "max_completion_tokens": 1500
@@ -213,7 +213,7 @@ renders whatever it receives; the request already came from the optimizer.
 2. Decode `Input`.
 3. Check required fields.
 4. If the explain client is unconfigured, return 503 `{"message": "Plan explanations are not configured"}`.
-5. Build the digest.
+5. Build the user message as `Explain this plan.\n\n` plus the digest.
 6. Call the provider with a 45 second context timeout.
 7. On success, write `{"explanation": text}` and log one line:
 
@@ -247,7 +247,7 @@ The prompt stays verbatim, including its length and wording. It is behavior, not
 configuration. The language line is appended exactly as upstream does:
 `Answer in the language with IETF tag <language>.` The default language is `en`;
 the default currency is `EUR`. Digest defaults match upstream: `eta_c` and `eta_d`
-are 0.95 when absent, and a missing strategy is `none`.
+are 0.95 when absent, and a missing strategy is `no preference`.
 
 Digest details that must match:
 

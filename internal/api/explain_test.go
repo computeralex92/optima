@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/computeralex92/optima/internal/explain"
 	"github.com/computeralex92/optima/internal/settings"
 )
 
@@ -52,6 +53,28 @@ func TestExplainReturnsExplanation(t *testing.T) {
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat/completions" {
 			t.Errorf("provider path = %q", r.URL.Path)
+		}
+		var body struct {
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		if len(body.Messages) != 2 {
+			t.Fatalf("messages = %d, want 2", len(body.Messages))
+		}
+		if body.Messages[0].Role != "system" ||
+			!strings.HasPrefix(body.Messages[0].Content, explain.SystemPrompt) ||
+			!strings.HasSuffix(body.Messages[0].Content, "Answer in the language with IETF tag en.") {
+			t.Errorf("system message not wired: role=%q", body.Messages[0].Role)
+		}
+		if body.Messages[1].Role != "user" ||
+			!strings.HasPrefix(body.Messages[1].Content, "Explain this plan.\n\n") ||
+			!strings.Contains(body.Messages[1].Content, "Plan per time slot") {
+			t.Errorf("user message not wired: role=%q", body.Messages[1].Role)
 		}
 		io.WriteString(w, `{"choices":[{"message":{"content":"because"}}],"usage":{"total_tokens":7}}`)
 	}))

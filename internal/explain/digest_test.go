@@ -52,7 +52,7 @@ func testInput() Input {
 func TestDigestRendersPlan(t *testing.T) {
 	text := Digest(testInput())
 	want := []string{
-		"Now: today 10:00. The plan runs until today 12:00. Status Optimal.",
+		"Now: today 10:00. The plan runs until today 12:00. Status Optimal. Preference: no preference.",
 		"Prices in ct/kWh, energies in kWh. Charging and discharging efficiency 0.95 and 0.95.",
 		`home battery "Home battery": capacity 10.0 kWh, now 50% (5.0 kWh), kept between 0% and 100%, charges up to 5.0 kW, discharges up to 5.0 kW, may charge from the grid, does not discharge into the grid`,
 		"today 10:30 | 15 | 10.0 | 10.0 | 0.0 | 0.2 | 1.5/0.0 | 1.2/0.0/57",
@@ -95,6 +95,42 @@ func TestStepLabelsInvalidTimestampFallsBack(t *testing.T) {
 	got := stepLabels([]int{900, 900, 3600}, stamps)
 	if len(got) == 0 || got[0] != "+0:00" {
 		t.Fatalf("labels = %v, want cumulative fallback", got)
+	}
+}
+
+func TestStepLabelsTimestampLengthMismatch(t *testing.T) {
+	stamps := []string{
+		"2026-10-15T10:00:00+02:00",
+		"2026-10-15T10:15:00+02:00",
+	}
+	got := stepLabels([]int{900, 900, 900, 900, 3600}, stamps)
+	if len(got) != 6 || got[0] != "+0:00" || got[len(got)-1] != "+2:00" {
+		t.Fatalf("labels = %v, want cumulative fallback", got)
+	}
+}
+
+func TestDigestTimestampLengthMismatch(t *testing.T) {
+	in := testInput()
+	in.Details.Timestamp = in.Details.Timestamp[:2]
+	text := Digest(in)
+	if !strings.Contains(text, "+0:30 | 15 | 10.0 | 10.0 | 0.0 | 0.2 | 1.5/0.0 | 1.2/0.0/57") {
+		t.Fatalf("digest missing fallback row: %s", text)
+	}
+}
+
+func TestRangesIgnoresDemandBeyondHorizon(t *testing.T) {
+	in := testInput()
+	in.Req.Batteries[0].PDemand = []float64{0, 0, 0, 0, 0, 1}
+	_ = Digest(in)
+}
+
+func TestDigestOmitsZeroLimitNote(t *testing.T) {
+	in := testInput()
+	in.Req.Grid.PmaxImp = f64(0)
+	in.Req.Grid.PmaxExp = f64(0)
+	text := Digest(in)
+	if strings.Contains(text, "grid import limited to") || strings.Contains(text, "grid export limited to") {
+		t.Fatalf("zero limits must not render a note: %s", text)
 	}
 }
 
