@@ -1,4 +1,4 @@
-# optimizer-v2 Implementation Plan
+# optima Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Module path `github.com/alex/optimizer-v2` (adjust once, at Task 1, if a different path is wanted).
+- Module path `github.com/computeralex92/optima`.
 - cgo is required (gohighs links static HiGHS). `CGO_ENABLED=1`.
 - No new third-party dependencies beyond gohighs.
 - All JSON uses `snake_case` keys, exactly as `/optimize/charge-schedule` in the spec section 3.
@@ -50,8 +50,8 @@ Input classes the spec implies but no task's first tests exercise. Each is pinne
 - [ ] **Step 1: Initialise the module and dependency**
 
 ```bash
-cd /Users/alex/Documents/git/optimizer-v2
-go mod init github.com/alex/optimizer-v2
+cd /path/to/optima
+go mod init github.com/computeralex92/optima
 go get github.com/bartolsthoorn/gohighs/highs
 ```
 
@@ -956,7 +956,7 @@ Multi-stage. Builder: a Go image with a C++ toolchain (`CGO_ENABLED=1`), `go bui
 
 - [ ] **Step 2: Verify the binary and container build**
 
-Run: `go build ./... && docker build -t optimizer-v2 .`
+Run: `go build ./... && docker build -t optima .`
 Expected: both succeed.
 
 - [ ] **Step 3: Run the full suite**

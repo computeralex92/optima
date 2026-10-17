@@ -2,3 +2,6 @@
 /optimizer
 *.log
 slow-requests.jsonl
+/.superpowers/
+/test_cases_local/
+.DS_Store

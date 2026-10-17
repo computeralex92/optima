@@ -9,6 +9,29 @@ Point evcc's `optimizer` URL at this service and it behaves like the original,
 with better performance and better end-results (see *Improvements* below). Plan
 explanations are also served, against any OpenAI-compatible provider.
 
+## Background and motivation
+
+The [evcc charging optimizer](https://github.com/evcc-io/optimizer) plans the
+cheapest way to run a home energy system — when to charge batteries and EVs,
+when to import from or export to the grid — over a horizon of hours or days.
+The original service is Python 3.13 (Flask + PuLP) and solves the resulting
+MILP with CBC across up to five solver stages.
+
+Upstream has been moving toward a better solver as well. [Issue #76](https://github.com/evcc-io/optimizer/issues/76)
+asked for better handling of binary variables, real multithreading and model
+analytics; the answer was HiGHS, first as a selectable solver
+([#197](https://github.com/evcc-io/optimizer/pull/197)) and then as a hybrid in
+production, with CBC on the joint probe and HiGHS on the split stages
+([#199](https://github.com/evcc-io/optimizer/pull/199)). This project follows
+that conclusion to its end: HiGHS only, with no PuLP/CBC compatibility layer.
+
+The rewrite is in Go rather than Python: one static binary, native parallelism
+and no interpreter in the deployment. It is a drop-in replacement — the same
+endpoints, request/response JSON and status semantics, so evcc cannot tell the
+difference. The contract stays frozen (see [`docs/compatibility.md`](docs/compatibility.md))
+while everything behind it is new. This is an independent, unaffiliated MIT
+rewrite of the upstream project.
+
 ## Run
 
 Local (needs a cgo/C++ toolchain, see caveats):
@@ -90,6 +113,10 @@ Plan explanations use any OpenAI-compatible chat-completions provider through
 the generic base URL is unset, the upstream `OPTIMIZER_AZURE_OPENAI_*` variables are
 used. Without either, `/optimize/explain` returns 503.
 
+Plan data is sent to that provider whenever `/optimize/explain` is called. Leave
+both the generic and Azure settings unset to keep explanations disabled; the
+charge-schedule endpoint never calls an external service.
+
 See [`docs/compatibility.md`](docs/compatibility.md) for the compatibility contract,
 how upstream changes are absorbed, and the registry of deliberate divergences.
 
@@ -119,3 +146,9 @@ internal/optimizer model, objective, solve, result
 internal/settings OPTIMIZER_* env
 test_cases/*.json vendored golden cases (conformance harness)
 ```
+
+## License
+
+MIT — see [`LICENSE`](LICENSE). The vendored `openapi.yaml` and `test_cases/`
+come from [`evcc-io/optimizer`](https://github.com/evcc-io/optimizer) under the
+same license.

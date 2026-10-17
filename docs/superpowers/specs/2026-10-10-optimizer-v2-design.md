@@ -1,4 +1,4 @@
-# optimizer-v2 design
+# optima design
 
 A ground-up rewrite of the evcc charging optimizer (https://github.com/evcc-io/optimizer)
 in Go, backed by HiGHS instead of PuLP/CBC. It is API compatible, so it can stand in
@@ -87,8 +87,8 @@ keyed by field path (for example `batteries.0.s_max`).
 ## 4. Architecture and layout
 
 ```
-optimizer-v2/
-├─ go.mod                      module github.com/alex/optimizer-v2
+optima/
+├─ go.mod                      module github.com/computeralex92/optima
 ├─ cmd/optimizer/main.go       HTTP service
 ├─ cmd/client/main.go          CLI client
 ├─ internal/
