@@ -65,6 +65,18 @@ func TestDigestRendersPlan(t *testing.T) {
 	}
 }
 
+func TestDigestRendersDischargePreference(t *testing.T) {
+	in := testInput()
+	in.Req.Strategy = optimizer.Strategy{
+		ChargingStrategy:    "charge_before_export",
+		DischargingStrategy: "discharge_before_import",
+	}
+	text := Digest(in)
+	if want := "Preference: fill battery first, discharge before grid import."; !strings.Contains(text, want) {
+		t.Fatalf("digest missing %q: %s", want, text)
+	}
+}
+
 func TestStepLabelsWithoutTimestamps(t *testing.T) {
 	got := stepLabels([]int{900, 900, 900, 900, 3600}, nil)
 	want := []string{"+0:00", "+0:15", "+0:30", "+0:45", "+1:00", "+2:00"}
@@ -181,7 +193,14 @@ func TestDigestCapacityFallback(t *testing.T) {
 }
 
 func TestSystemPrompt(t *testing.T) {
-	for _, want := range []string{"You explain an energy plan", "Never use dashes as punctuation"} {
+	for _, want := range []string{
+		"You explain an energy plan",
+		"Never use dashes as punctuation",
+		"A real price difference always wins",
+		"import in the cheapest quarter-hours",
+		"cannot discharge into the grid",
+		"A minimum charge power",
+	} {
 		if !strings.Contains(SystemPrompt, want) {
 			t.Errorf("prompt missing %q", want)
 		}

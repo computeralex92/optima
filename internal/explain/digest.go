@@ -22,6 +22,10 @@ var strategyLabels = map[string]string{
 	"attenuate_grid_peaks":   "reduce grid peaks",
 }
 
+var dischargeStrategyLabels = map[string]string{
+	"discharge_before_import": "discharge before grid import",
+}
+
 var demandLabels = map[string]string{
 	"heating":    "heating",
 	"unmodelled": "charging point without vehicle data",
@@ -78,9 +82,16 @@ func Digest(in Input) string {
 		demands = append(demands, fmt.Sprintf("%s %q", label, title))
 	}
 
-	strategy := strategyLabels[req.Strategy.ChargingStrategy]
-	if strategy == "" {
-		strategy = "no preference"
+	preferences := make([]string, 0, 2)
+	if s := strategyLabels[req.Strategy.ChargingStrategy]; s != "" {
+		preferences = append(preferences, s)
+	}
+	if s := dischargeStrategyLabels[req.Strategy.DischargingStrategy]; s != "" {
+		preferences = append(preferences, s)
+	}
+	strategy := "no preference"
+	if len(preferences) > 0 {
+		strategy = strings.Join(preferences, ", ")
 	}
 
 	etaC, etaD := 0.95, 0.95
