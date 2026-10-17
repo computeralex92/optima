@@ -16,6 +16,13 @@ type Settings struct {
 	NumThreads       *int     // nil = HiGHS default
 	LogSubject       bool     // default false
 	DumpSlowRequests string   // "" = disabled
+
+	LLMBaseURL            string // generic OpenAI-compatible base URL
+	LLMAPIKey             string // optional for local endpoints
+	LLMModel              string
+	AzureOpenAIEndpoint   string
+	AzureOpenAIKey        string
+	AzureOpenAIDeployment string
 }
 
 // Load reads OPTIMIZER_* from the environment and applies defaults.
@@ -46,6 +53,15 @@ func Load() Settings {
 		s.LogSubject = v
 	}
 	s.DumpSlowRequests = os.Getenv("OPTIMIZER_DUMP_SLOW_REQUESTS")
+	s.LLMBaseURL = os.Getenv("OPTIMIZER_LLM_BASE_URL")
+	s.LLMAPIKey = os.Getenv("OPTIMIZER_LLM_API_KEY")
+	s.LLMModel = os.Getenv("OPTIMIZER_LLM_MODEL")
+	s.AzureOpenAIEndpoint = os.Getenv("OPTIMIZER_AZURE_OPENAI_ENDPOINT")
+	s.AzureOpenAIKey = os.Getenv("OPTIMIZER_AZURE_OPENAI_KEY")
+	s.AzureOpenAIDeployment = os.Getenv("OPTIMIZER_AZURE_OPENAI_DEPLOYMENT")
+	if s.AzureOpenAIDeployment == "" {
+		s.AzureOpenAIDeployment = "gpt-6-luna"
+	}
 	return s
 }
 
