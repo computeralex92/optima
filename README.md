@@ -80,6 +80,8 @@ The vendored `openapi.yaml` is the source of truth; both endpoints match the ori
 | `objective_value` | same | clean economic value; `null` on non-solved status; all arrays `[]` never `null` |
 | env settings | same names | `OPTIMIZER_*` (`TIME_LIMIT`, `GAP_ABS`, `GAP_SHARE`, `PREFERENCE_BUDGET`, `NUM_THREADS`, …) |
 
+Upstream's newer optional `/optimize/explain` and `/optimize/explain/feedback` endpoints are not served; see D8 in [`docs/compatibility.md`](docs/compatibility.md).
+
 See [`docs/compatibility.md`](docs/compatibility.md) for the compatibility contract,
 how upstream changes are absorbed, and the registry of deliberate divergences.
 
