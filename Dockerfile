@@ -3,7 +3,9 @@
 # Builder: Debian-based Go image with a C++ toolchain and zlib headers.
 # gohighs is a cgo binding that links a static HiGHS (C++), so CGO_ENABLED=1,
 # g++ and zlib1g-dev are required (its linux link flags include -lstdc++ -lz).
-FROM golang:1.27-bookworm AS build
+# Alpine is not an option: libhighs.a is built against glibc and its objects
+# reference glibc-only symbols (__printf_chk, __fprintf_chk), which musl lacks.
+FROM golang:1.27-trixie AS build
 RUN apt-get update && apt-get install -y --no-install-recommends \
         g++ zlib1g-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
