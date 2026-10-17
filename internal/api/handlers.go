@@ -12,12 +12,14 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/computeralex92/optima/internal/explain"
 	"github.com/computeralex92/optima/internal/optimizer"
 	"github.com/computeralex92/optima/internal/settings"
 )
 
 type handler struct {
-	settings settings.Settings
+	settings      settings.Settings
+	explainClient *explain.Client
 }
 
 // maxRequestBody caps a charge-schedule body at 8 MiB. The largest vendored case

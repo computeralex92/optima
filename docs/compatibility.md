@@ -9,8 +9,10 @@ which deliberate divergences exist.
 
 Frozen 1:1 with upstream:
 
-- Paths and methods: `POST /optimize/charge-schedule`, `GET /optimize/health`.
+- Paths and methods: `POST /optimize/charge-schedule`, `GET /optimize/health`,
+  `POST /optimize/explain`, `POST /optimize/explain/feedback`.
 - Request/response JSON shape, field names and defaults.
+- The explain request, response, 400, 502, and 503 shapes.
 - The `status` enum: `Optimal, Feasible, Infeasible, Unbounded, Undefined, Not Solved`.
 - The error response shape.
 - Network port `7050`.
@@ -57,6 +59,7 @@ rule and pinned by a test.
 | D5 | schedule | peak-profile smoothing: a flatter profile at equal-or-better objective | upstream pins only the horizon maximum, so a plateau and a jagged profile score alike | `TestSolve024PeakFlat`, `TestPeakStagePinsActivePeak` | schedule choice only; objective never worse than upstream |
 | D6 | schedule | proven-optimal tie-breaks (the preference stage runs at zero MIP gap) | upstream stops at an approximate LP floor | `TestSolve024CostObjective`, `TestContinuityKeepsPreferenceValue` | schedule choice only; objective never worse than upstream |
 | D7 | schedule | continuity is a real objective under hard cost, peak and preference bounds | never trades money or preference value for a nicer schedule | `TestContinuityReducesChargeStarts`, `TestContinuitySpendsNoMoney`, `TestContinuityKeepsPreferenceValue` | schedule choice only; objective never worse than upstream |
+| D8 | endpoints | `/optimize/explain/feedback` does not store votes | feedback storage is not implemented; the route always returns 503 | `TestExplainFeedbackUnconfigured` | explanations are served; feedback stays unavailable until a store is added |
 
 Every schedule divergence (D5–D7) is additionally bound by `TestConformance`'s
 match-or-beat acceptance: the schedule we return may differ from upstream's, but its
@@ -65,5 +68,11 @@ objective value may never be worse.
 ## Our additions
 
 Anything we add must be optional with an upstream-safe default and must never change
-the shape of an existing response. There are no additions yet. When one is added, give
-it a row here.
+the shape of an existing response.
+
+| id | addition | default | pinned by |
+|---|---|---|---|
+| A1 | `OPTIMIZER_LLM_BASE_URL`, `OPTIMIZER_LLM_API_KEY`, `OPTIMIZER_LLM_MODEL` select any OpenAI-compatible chat-completions provider for `/optimize/explain` | unset, then `OPTIMIZER_AZURE_OPENAI_*`, otherwise 503 | `internal/explain/config_test.go`, `internal/api/explain_test.go` |
+
+The generic variables take precedence over the Azure fallback. They never change the
+charge-schedule response or the explain response shape.

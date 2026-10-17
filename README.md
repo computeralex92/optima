@@ -3,10 +3,11 @@
 A ground-up rewrite of the [evcc charging optimizer](https://github.com/evcc-io/optimizer)
 in Go, backed by [HiGHS](https://highs.dev) instead of PuLP/CBC.
 
-It is a **drop-in replacement** for the Python service next to evcc: the same two
-endpoints, the same request/response JSON, the same status semantics. Point evcc's
-`optimizer` URL at this service and it behaves like the original — with better
-performance and better end-results (see *Improvements* below).
+It is a **drop-in replacement** for the Python service next to evcc: the same
+optimizer endpoints, the same request/response JSON, the same status semantics.
+Point evcc's `optimizer` URL at this service and it behaves like the original,
+with better performance and better end-results (see *Improvements* below). Plan
+explanations are also served, against any OpenAI-compatible provider.
 
 ## Run
 
@@ -69,16 +70,24 @@ back:
 
 ## API mapping to the upstream service
 
-The vendored `openapi.yaml` is the source of truth; both endpoints match the original
-1:1 (same paths, methods, JSON shapes and network port `7050`).
+The vendored `openapi.yaml` is the source of truth. The charge-schedule and health
+endpoints match the original 1:1 (same paths, methods, JSON shapes and network port
+`7050`).
 
 | Upstream | This service | Notes |
 |---|---|---|
 | `POST /optimize/charge-schedule` | `POST /optimize/charge-schedule` | body `OptimizationInput` → `OptimizationResult`, identical fields and defaults |
 | `GET /optimize/health` | `GET /optimize/health` | `{"status":"healthy","message":"EV Charging MILP API is running"}` |
+| `POST /optimize/explain` | `POST /optimize/explain` | body `ExplainInput` → `ExplainResult`; any OpenAI-compatible provider or the Azure fallback |
+| `POST /optimize/explain/feedback` | `POST /optimize/explain/feedback` | returns 503; feedback storage is not implemented (D8) |
 | `status` values | same | `Optimal, Feasible, Infeasible, Unbounded, Undefined, Not Solved` |
 | `objective_value` | same | clean economic value; `null` on non-solved status; all arrays `[]` never `null` |
-| env settings | same names | `OPTIMIZER_*` (`TIME_LIMIT`, `GAP_ABS`, `GAP_SHARE`, `PREFERENCE_BUDGET`, `NUM_THREADS`, …) |
+| env settings | same names plus explain settings | `OPTIMIZER_*` (`TIME_LIMIT`, `GAP_ABS`, `GAP_SHARE`, `PREFERENCE_BUDGET`, `NUM_THREADS`, `LLM_*`, …) |
+
+Plan explanations use any OpenAI-compatible chat-completions provider through
+`OPTIMIZER_LLM_BASE_URL`, `OPTIMIZER_LLM_API_KEY`, and `OPTIMIZER_LLM_MODEL`. When
+the generic base URL is unset, the upstream `OPTIMIZER_AZURE_OPENAI_*` variables are
+used. Without either, `/optimize/explain` returns 503.
 
 See [`docs/compatibility.md`](docs/compatibility.md) for the compatibility contract,
 how upstream changes are absorbed, and the registry of deliberate divergences.
@@ -104,6 +113,7 @@ how upstream changes are absorbed, and the registry of deliberate divergences.
 cmd/optimizer     HTTP service
 cmd/client        CLI client
 internal/api      types, normalize, validate, handlers, server
+internal/explain  provider config, chat client, plan digest, prompt
 internal/optimizer model, objective, solve, result
 internal/settings OPTIMIZER_* env
 test_cases/*.json vendored golden cases (conformance harness)

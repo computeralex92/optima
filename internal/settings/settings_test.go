@@ -10,6 +10,12 @@ var optimizerEnv = []string{
 	"OPTIMIZER_NUM_THREADS",
 	"OPTIMIZER_LOG_SUBJECT",
 	"OPTIMIZER_DUMP_SLOW_REQUESTS",
+	"OPTIMIZER_LLM_BASE_URL",
+	"OPTIMIZER_LLM_API_KEY",
+	"OPTIMIZER_LLM_MODEL",
+	"OPTIMIZER_AZURE_OPENAI_ENDPOINT",
+	"OPTIMIZER_AZURE_OPENAI_KEY",
+	"OPTIMIZER_AZURE_OPENAI_DEPLOYMENT",
 }
 
 func clearOptimizerEnv(t *testing.T) {
@@ -57,5 +63,34 @@ func TestLoadOverrides(t *testing.T) {
 	}
 	if !s.LogSubject {
 		t.Fatalf("LogSubject = false")
+	}
+}
+
+func TestLoadLLMConfig(t *testing.T) {
+	clearOptimizerEnv(t)
+	t.Setenv("OPTIMIZER_LLM_BASE_URL", "https://api.deepseek.com/v1")
+	t.Setenv("OPTIMIZER_LLM_API_KEY", "secret")
+	t.Setenv("OPTIMIZER_LLM_MODEL", "deepseek-chat")
+	t.Setenv("OPTIMIZER_AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com")
+	t.Setenv("OPTIMIZER_AZURE_OPENAI_KEY", "azure-secret")
+	t.Setenv("OPTIMIZER_AZURE_OPENAI_DEPLOYMENT", "my-deployment")
+
+	s := Load()
+	if s.LLMBaseURL != "https://api.deepseek.com/v1" ||
+		s.LLMAPIKey != "secret" ||
+		s.LLMModel != "deepseek-chat" {
+		t.Fatalf("generic LLM config = %+v", s)
+	}
+	if s.AzureOpenAIEndpoint != "https://example.openai.azure.com" ||
+		s.AzureOpenAIKey != "azure-secret" ||
+		s.AzureOpenAIDeployment != "my-deployment" {
+		t.Fatalf("Azure config = %+v", s)
+	}
+}
+
+func TestLoadAzureDeploymentDefault(t *testing.T) {
+	clearOptimizerEnv(t)
+	if got := Load().AzureOpenAIDeployment; got != "gpt-6-luna" {
+		t.Fatalf("AzureOpenAIDeployment = %q, want gpt-6-luna", got)
 	}
 }
