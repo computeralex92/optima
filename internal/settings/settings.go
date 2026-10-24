@@ -15,6 +15,7 @@ type Settings struct {
 	PreferenceBudget float64  // default 0.0
 	NumThreads       *int     // nil = HiGHS default
 	LogSubject       bool     // default false
+	DumpRequests     string   // "" = disabled
 	DumpSlowRequests string   // "" = disabled
 
 	LLMBaseURL            string // generic OpenAI-compatible base URL
@@ -52,6 +53,7 @@ func Load() Settings {
 	if v, ok := boolEnv("OPTIMIZER_LOG_SUBJECT"); ok {
 		s.LogSubject = v
 	}
+	s.DumpRequests = os.Getenv("OPTIMIZER_DUMP_REQUESTS")
 	s.DumpSlowRequests = os.Getenv("OPTIMIZER_DUMP_SLOW_REQUESTS")
 	s.LLMBaseURL = os.Getenv("OPTIMIZER_LLM_BASE_URL")
 	s.LLMAPIKey = os.Getenv("OPTIMIZER_LLM_API_KEY")

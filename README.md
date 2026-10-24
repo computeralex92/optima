@@ -106,7 +106,11 @@ endpoints match the original 1:1 (same paths, methods, JSON shapes and network p
 | `POST /optimize/explain/feedback` | `POST /optimize/explain/feedback` | returns 503; feedback storage is not implemented (D8) |
 | `status` values | same | `Optimal, Feasible, Infeasible, Unbounded, Undefined, Not Solved` |
 | `objective_value` | same | clean economic value; `null` on non-solved status; all arrays `[]` never `null` |
-| env settings | same names plus explain settings | `OPTIMIZER_*` (`TIME_LIMIT`, `GAP_ABS`, `GAP_SHARE`, `PREFERENCE_BUDGET`, `NUM_THREADS`, `LLM_*`, …) |
+| env settings | same names plus explain settings | `OPTIMIZER_*` (`TIME_LIMIT`, `GAP_ABS`, `GAP_SHARE`, `PREFERENCE_BUDGET`, `NUM_THREADS`, `DUMP_REQUESTS`, `LLM_*`, …) |
+
+`OPTIMIZER_DUMP_REQUESTS=/path/requests.jsonl` appends every solved request and
+its response as one JSONL line for offline replay. It is opt-in and grows without
+rotation, so use it for a capture window.
 
 Plan explanations use any OpenAI-compatible chat-completions provider through
 `OPTIMIZER_LLM_BASE_URL`, `OPTIMIZER_LLM_API_KEY`, and `OPTIMIZER_LLM_MODEL`. When

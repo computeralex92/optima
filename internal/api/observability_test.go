@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/computeralex92/optima/internal/optimizer"
 	"github.com/computeralex92/optima/internal/settings"
@@ -224,6 +225,59 @@ func TestSlowRequestsDumped(t *testing.T) {
 		if err := json.Unmarshal(entry.Request, &reqBody); err != nil || reqBody == nil {
 			t.Fatalf("line %d: request not a JSON object: %v (%s)", i, err, entry.Request)
 		}
+	}
+}
+
+// TestRequestsDumped appends one JSONL line per solved request when enabled,
+// carrying the timestamp, client, solve metadata, raw request and response.
+func TestRequestsDumped(t *testing.T) {
+	dump := filepath.Join(t.TempDir(), "nested", "requests.jsonl")
+	raw := trivialInput(t)
+
+	rec := postSolve(t, settings.Settings{DumpRequests: dump}, raw, map[string]string{"User-Agent": "evcc/test"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code %d, body %s", rec.Code, rec.Body.String())
+	}
+
+	b, err := os.ReadFile(dump)
+	if err != nil {
+		t.Fatalf("dump file: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("want 1 dump line, got %d: %q", len(lines), string(b))
+	}
+
+	var entry struct {
+		Time     string          `json:"time"`
+		Client   string          `json:"client"`
+		Elapsed  float64         `json:"elapsed"`
+		Status   string          `json:"status"`
+		Request  json.RawMessage `json:"request"`
+		Response json.RawMessage `json:"response"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
+		t.Fatalf("line not JSON: %v (%q)", err, lines[0])
+	}
+	if _, err := time.Parse(time.RFC3339Nano, entry.Time); err != nil {
+		t.Fatalf("time %q: %v", entry.Time, err)
+	}
+	if entry.Client != "evcc/test" {
+		t.Fatalf("client %q", entry.Client)
+	}
+	if entry.Status != "Optimal" {
+		t.Fatalf("status %q", entry.Status)
+	}
+	if entry.Elapsed <= 0 {
+		t.Fatalf("elapsed %v, want > 0", entry.Elapsed)
+	}
+
+	var reqBody, resBody map[string]any
+	if err := json.Unmarshal(entry.Request, &reqBody); err != nil || reqBody["time_series"] == nil {
+		t.Fatalf("request not a JSON request body: %v (%s)", err, entry.Request)
+	}
+	if err := json.Unmarshal(entry.Response, &resBody); err != nil || resBody["status"] != "Optimal" {
+		t.Fatalf("response not a solved result: %v (%s)", err, entry.Response)
 	}
 }
 
