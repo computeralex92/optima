@@ -10,6 +10,7 @@ var optimizerEnv = []string{
 	"OPTIMIZER_NUM_THREADS",
 	"OPTIMIZER_LOG_SUBJECT",
 	"OPTIMIZER_DUMP_SLOW_REQUESTS",
+	"OPTIMIZER_DUMP_REQUESTS",
 	"OPTIMIZER_LLM_BASE_URL",
 	"OPTIMIZER_LLM_API_KEY",
 	"OPTIMIZER_LLM_MODEL",
@@ -48,6 +49,7 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("OPTIMIZER_LOG_SUBJECT", "true")
 	t.Setenv("OPTIMIZER_GAP_ABS", "0.05")
 	t.Setenv("OPTIMIZER_GAP_SHARE", "0.001")
+	t.Setenv("OPTIMIZER_DUMP_REQUESTS", "/tmp/requests.jsonl")
 	s := Load()
 	if s.GapAbs == nil || *s.GapAbs != 0.05 {
 		t.Fatalf("GapAbs = %v", s.GapAbs)
@@ -63,6 +65,9 @@ func TestLoadOverrides(t *testing.T) {
 	}
 	if !s.LogSubject {
 		t.Fatalf("LogSubject = false")
+	}
+	if s.DumpRequests != "/tmp/requests.jsonl" {
+		t.Fatalf("DumpRequests = %q", s.DumpRequests)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/computeralex92/optima/internal/explain"
 	"github.com/computeralex92/optima/internal/optimizer"
@@ -52,7 +53,7 @@ func (h *handler) health(w http.ResponseWriter, _ *http.Request) {
 // returns the Result. Every path writes a JSON body (never empty): 400 for a
 // decode or validation failure, 500 for a solve failure, 200 otherwise. On a
 // successful solve it emits exactly one {"solve": {...}} line to stdout and,
-// when configured, appends a slow-request line (spec 9).
+// when configured, appends request and slow-request dump lines (spec 9).
 func (h *handler) chargeSchedule(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 	raw, err := io.ReadAll(r.Body)
@@ -93,7 +94,8 @@ func (h *handler) chargeSchedule(w http.ResponseWriter, r *http.Request) {
 
 	info.Subject = h.subject(r)
 	logSolve(info)
-	h.dumpSlow(info, raw)
+	h.dumpRequests(info, raw, res)
+	h.dumpSlow(info, raw, res)
 
 	writeJSON(w, http.StatusOK, res)
 }
@@ -156,11 +158,20 @@ func jwtSubject(token, secret string) string {
 	return claims.Sub
 }
 
+// dumpRequests appends one JSONL record per solved request when configured.
+// Unlike dumpSlow this is opt-in for every request, so a capture window records
+// exactly what evcc sent and what the solver returned.
+func (h *handler) dumpRequests(info optimizer.SolveInfo, raw []byte, res optimizer.Result) {
+	if h.settings.DumpRequests == "" {
+		return
+	}
+	appendDump(h.settings.DumpRequests, info, raw, res)
+}
+
 // dumpSlow appends one JSONL record for a request that stopped unproven
-// (Feasible) or used its whole time limit (spec 9). It creates parent
-// directories as needed and is a no-op when dumping is disabled or the request
-// was not slow.
-func (h *handler) dumpSlow(info optimizer.SolveInfo, raw []byte) {
+// (Feasible) or used its whole time limit (spec 9). It is a no-op when dumping
+// is disabled or the request was not slow.
+func (h *handler) dumpSlow(info optimizer.SolveInfo, raw []byte, res optimizer.Result) {
 	if h.settings.DumpSlowRequests == "" {
 		return
 	}
@@ -168,19 +179,40 @@ func (h *handler) dumpSlow(info optimizer.SolveInfo, raw []byte) {
 		!(h.settings.TimeLimit != nil && info.Elapsed.Seconds() >= *h.settings.TimeLimit) {
 		return
 	}
-	if dir := filepath.Dir(h.settings.DumpSlowRequests); dir != "" {
+	appendDump(h.settings.DumpSlowRequests, info, raw, res)
+}
+
+// appendDump writes one JSONL record. Errors are ignored: observability must
+// never fail a solve. ponytail: no rotation, the file grows until disabled;
+// capture windows only, logrotate/truncate if it is left on.
+func appendDump(path string, info optimizer.SolveInfo, raw []byte, res optimizer.Result) {
+	if dir := filepath.Dir(path); dir != "" {
 		_ = os.MkdirAll(dir, 0o755)
 	}
-	f, err := os.OpenFile(h.settings.DumpSlowRequests, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return
 	}
 	defer f.Close()
+	response, err := json.Marshal(res)
+	if err != nil {
+		response = nil
+	}
 	_ = json.NewEncoder(f).Encode(struct {
-		Elapsed float64         `json:"elapsed"`
-		Status  string          `json:"status"`
-		Request json.RawMessage `json:"request"`
-	}{Elapsed: info.Elapsed.Seconds(), Status: info.Status, Request: json.RawMessage(raw)})
+		Time     string          `json:"time"`
+		Client   string          `json:"client"`
+		Elapsed  float64         `json:"elapsed"`
+		Status   string          `json:"status"`
+		Request  json.RawMessage `json:"request"`
+		Response json.RawMessage `json:"response,omitempty"`
+	}{
+		Time:     time.Now().UTC().Format(time.RFC3339Nano),
+		Client:   info.Client,
+		Elapsed:  info.Elapsed.Seconds(),
+		Status:   info.Status,
+		Request:  json.RawMessage(raw),
+		Response: response,
+	})
 }
 
 // writeJSON marshals v (no trailing newline, so health is byte-exact) and
