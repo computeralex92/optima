@@ -86,7 +86,7 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 		if err != nil {
 			return Result{}, err
 		}
-		if bsol != nil && bsol.HasSolution() {
+		if mo.retain(bsol) {
 			sol = bsol
 			status = decidingStatus(status, bsol)
 			for _, side := range mo.peakSides {
@@ -109,7 +109,7 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 		if err != nil {
 			return Result{}, err
 		}
-		if psol != nil && psol.HasSolution() &&
+		if mo.retain(psol) &&
 			objective(mo.prefRow, psol) > objective(mo.prefRow, sol) {
 			sol = psol
 			status = decidingStatus(status, psol)
@@ -140,7 +140,7 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 		// Retain only a schedule with strictly fewer sessions than the incumbent.
 		// The earlier stages leave start[i][t] free, so its value there is not the
 		// real transition count; count from the charging power instead.
-		if dsol != nil && dsol.HasSolution() && mo.countStarts(dsol) < mo.countStarts(sol) {
+		if mo.retain(dsol) && mo.countStarts(dsol) < mo.countStarts(sol) {
 			sol = dsol
 			status = decidingStatus(status, dsol)
 		}
@@ -281,6 +281,15 @@ func (mo *model) finalizeStatus(sol *highs.Solution, st highs.ModelStatus) Resul
 		return mo.assemble(nil, "Not Solved")
 	}
 	return mo.assemble(sol, mapStatus(st, true))
+}
+
+// retain reports whether a later stage's solution may replace the incumbent.
+// HasSolution is not enough: gohighs reports it on TimeLimit even without a MIP
+// incumbent, so a timed-out stage can hand back a model-violating vector. Keeping
+// the previous stage's valid schedule is what makes an expiry mid-cascade return
+// a usable Feasible result instead of Not Solved.
+func (mo *model) retain(sol *highs.Solution) bool {
+	return sol != nil && sol.HasSolution() && mo.safetyCheck(sol)
 }
 
 // stage sets one stage's objective and solves it within the shared deadline.
