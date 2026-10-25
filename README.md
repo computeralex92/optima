@@ -14,7 +14,7 @@ explanations are also served, against any OpenAI-compatible provider.
 The [evcc charging optimizer](https://github.com/evcc-io/optimizer) plans the
 cheapest way to run a home energy system — when to charge batteries and EVs,
 when to import from or export to the grid — over a horizon of hours or days.
-The original service is Python 3.13 (Flask + PuLP) and solves the resulting
+The original service is Python 3.14 (Flask + PuLP) and solves the resulting
 MILP with CBC across up to five solver stages.
 
 Upstream has been moving toward a better solver as well. [Issue #76](https://github.com/evcc-io/optimizer/issues/76)
@@ -81,16 +81,18 @@ refreshes the vendored upstream contract — see [`docs/compatibility.md`](docs/
 ## Validator divergences from `openapi.yaml`
 
 The vendored `openapi.yaml` does not pin every numeric edge, and the validator
-deliberately diverges from a literal reading in four places. Do not "fix" these
+deliberately diverges from a literal reading in three places. Do not "fix" these
 back:
 
 1. Negative `p_N`, `p_E` and `p_a` are accepted: real day-ahead prices and
    export tariffs go negative.
-2. `dt` must be `> 0` (a zero or negative step has no meaning in `h[t] = dt/3600`).
-3. Empty series arrays are rejected: every `time_series` array needs at least one
+2. Empty series arrays are rejected: every `time_series` array needs at least one
    element, and all must match `gt`'s length.
-4. `eta_c` / `eta_d` must be in `(0, 1]` (a zero or above-one efficiency is not
+3. `eta_c` / `eta_d` must be in `(0, 1]` (a zero or above-one efficiency is not
    physical).
+
+`dt` is no longer in this list: upstream's schema now carries
+`exclusiveMinimum: true`, so requiring `dt > 0` is the documented contract.
 
 ## API mapping to the upstream service
 

@@ -39,7 +39,7 @@ func TestResolveAzureFallback(t *testing.T) {
 }
 
 func TestResolveAzureDefaultDeployment(t *testing.T) {
-	if got := Resolve("", "", "", "https://azure", "azkey", "").Model; got != "gpt-6-luna" {
+	if got := Resolve("", "", "", "https://azure", "azkey", "").Model; got != "gpt-6.1-sol" {
 		t.Fatalf("model = %q", got)
 	}
 }

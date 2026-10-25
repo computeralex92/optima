@@ -118,10 +118,9 @@ func (in *Input) Validate() error {
 			add(s.key, fmt.Sprintf("length %d does not match time_series.gt length %d", s.n, t))
 		}
 	}
-	for _, v := range in.Series.DT {
+	for i, v := range in.Series.DT {
 		if v <= 0 {
-			add("time_series.dt", "must be > 0")
-			break
+			add(fmt.Sprintf("time_series.dt.%d", i), "must be > 0")
 		}
 	}
 	for _, s := range []struct {

@@ -95,7 +95,7 @@ func TestLoadLLMConfig(t *testing.T) {
 
 func TestLoadAzureDeploymentDefault(t *testing.T) {
 	clearOptimizerEnv(t)
-	if got := Load().AzureOpenAIDeployment; got != "gpt-6-luna" {
-		t.Fatalf("AzureOpenAIDeployment = %q, want gpt-6-luna", got)
+	if got := Load().AzureOpenAIDeployment; got != "gpt-6.1-sol" {
+		t.Fatalf("AzureOpenAIDeployment = %q, want gpt-6.1-sol", got)
 	}
 }

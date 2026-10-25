@@ -45,6 +45,8 @@ type chatRequest struct {
 	MaxTokens           int           `json:"max_tokens,omitempty"`
 	MaxCompletionTokens int           `json:"max_completion_tokens,omitempty"`
 	ReasoningEffort     string        `json:"reasoning_effort,omitempty"`
+	// System prompt is identical across requests: keep its cache warm for a day.
+	PromptCacheRetention string `json:"prompt_cache_retention,omitempty"`
 }
 
 type chatResponse struct {
@@ -74,6 +76,7 @@ func (c *Client) Complete(ctx context.Context, system, user string) (string, Usa
 	if c.cfg.Azure {
 		body.MaxCompletionTokens = 1500
 		body.ReasoningEffort = "low"
+		body.PromptCacheRetention = "24h"
 	} else {
 		body.MaxTokens = 1500
 	}
