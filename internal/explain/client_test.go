@@ -29,6 +29,9 @@ func TestCompleteGenericRequest(t *testing.T) {
 		if body["max_tokens"] != float64(1500) {
 			t.Errorf("max_tokens = %v", body["max_tokens"])
 		}
+		if _, ok := body["prompt_cache_retention"]; ok {
+			t.Error("generic body must not carry an Azure-only cache field")
+		}
 		w.Header().Set("Content-Type", "application/json")
 		io.WriteString(w, `{"choices":[{"message":{"content":"Sunny \u2014 cheap"}}],"usage":{"total_tokens":42}}`)
 	}))
@@ -92,6 +95,9 @@ func TestCompleteAzureRequest(t *testing.T) {
 		}
 		if body["reasoning_effort"] != "low" {
 			t.Errorf("reasoning_effort = %v", body["reasoning_effort"])
+		}
+		if body["prompt_cache_retention"] != "24h" {
+			t.Errorf("prompt_cache_retention = %v", body["prompt_cache_retention"])
 		}
 		if _, ok := body["max_tokens"]; ok {
 			t.Error("Azure body must not carry max_tokens")

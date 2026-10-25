@@ -62,7 +62,7 @@ func Load() Settings {
 	s.AzureOpenAIKey = os.Getenv("OPTIMIZER_AZURE_OPENAI_KEY")
 	s.AzureOpenAIDeployment = os.Getenv("OPTIMIZER_AZURE_OPENAI_DEPLOYMENT")
 	if s.AzureOpenAIDeployment == "" {
-		s.AzureOpenAIDeployment = "gpt-6-luna"
+		s.AzureOpenAIDeployment = "gpt-6.1-sol"
 	}
 	return s
 }

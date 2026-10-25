@@ -119,6 +119,37 @@ func TestTimeLimitAllZeroNoIncumbentNotFeasible(t *testing.T) {
 	}
 }
 
+// TestBatteryWithoutPowerIsSolved is upstream's zero-power battery regression:
+// evcc sends c_max and d_max 0 when a battery's power limits read 0. The charge
+// discharge gate then appears in no row, but the battery must still solve and
+// keep its charge.
+func TestBatteryWithoutPowerIsSolved(t *testing.T) {
+	in := Input{
+		Batteries: []Battery{
+			{SMin: f64(0), SMax: f64(10000), SInitial: f64(5000),
+				CMin: f64(0), CMax: f64(0), DMax: f64(0), PA: f64(0.0001)},
+			{SMin: f64(0), SMax: f64(50000), SInitial: f64(0),
+				CMin: f64(0), CMax: f64(11000), DMax: f64(0), PA: f64(0.0003)},
+		},
+		Series: Series{
+			DT: []int{3600, 3600}, GT: []float64{1000, 1000}, FT: []float64{0, 2000},
+			PN: []float64{0.0003, 0.0003}, PE: []float64{0.0001, 0.0001},
+		},
+	}
+	got, err := Solve(in, settings.Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "Optimal" {
+		t.Fatalf("status = %q, want Optimal", got.Status)
+	}
+	for i, want := range []float64{5000, 5000} {
+		if math.Abs(got.Batteries[0].StateOfCharge[i]-want) > 1e-6 {
+			t.Fatalf("battery 0 SOC[%d] = %v, want %v", i, got.Batteries[0].StateOfCharge[i], want)
+		}
+	}
+}
+
 // demandRateInput models the demand-rate path: a 5000 Wh load the 1000 W import
 // cap cannot cover, with prc_p_exc_imp set so the exceedance is charged per W.
 // Import splits into n = 1000 (the cap) and excImp = 4000 (beyond it), and the

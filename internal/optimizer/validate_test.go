@@ -122,6 +122,20 @@ func TestValidateRejectsEmptySeries(t *testing.T) {
 	}
 }
 
+// TestValidateRejectsNonPositiveStep pins the schema's exclusiveMinimum: true on
+// dt and the per-element detail key upstream uses for it.
+func TestValidateRejectsNonPositiveStep(t *testing.T) {
+	for _, dt := range []int{0, -900} {
+		in := Input{Batteries: []Battery{validBattery()}, Series: twoStepSeries()}
+		in.Series.DT[1] = dt
+		err := in.Validate()
+		var ve *ValidationError
+		if !errors.As(err, &ve) || ve.Details["time_series.dt.1"] == "" {
+			t.Fatalf("dt = %d: want a time_series.dt.1 detail, got %v", dt, err)
+		}
+	}
+}
+
 func TestValidateRejectsZeroEta(t *testing.T) {
 	in := Input{Batteries: []Battery{validBattery()}, Series: twoStepSeries(), EtaD: f64(0)}
 	err := in.Validate()

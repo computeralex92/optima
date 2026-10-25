@@ -20,7 +20,7 @@ func Resolve(genericBaseURL, genericAPIKey, genericModel, azureEndpoint, azureAP
 	}
 	if azureEndpoint != "" && azureAPIKey != "" {
 		if azureDeployment == "" {
-			azureDeployment = "gpt-6-luna"
+			azureDeployment = "gpt-6.1-sol"
 		}
 		return Config{BaseURL: azureEndpoint, APIKey: azureAPIKey, Model: azureDeployment, Azure: true}
 	}
