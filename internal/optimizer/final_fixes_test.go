@@ -114,8 +114,37 @@ func TestTimeLimitAllZeroNoIncumbentNotFeasible(t *testing.T) {
 	if mo.safetyCheck(sol) {
 		t.Fatal("safetyCheck accepted an all-zero vector that violates the balance rows")
 	}
+	if mo.retain(sol) {
+		t.Fatal("retain accepted a no-incumbent time-limit vector")
+	}
 	if got := mo.finalizeStatus(sol, sol.Status).Status; got != "Not Solved" {
 		t.Fatalf("no-incumbent time-limit reported %q, want Not Solved", got)
+	}
+}
+
+// TestTimeLimitRetainsCostStage is the regression for a timeout in a later stage.
+// The cost stage has a valid optimal schedule; the peak stage then expires without
+// an incumbent. That partial vector must not replace the cost-stage solution, or
+// the whole request degrades to Not Solved instead of returning a usable plan.
+func TestTimeLimitRetainsCostStage(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs a long horizon against a wall clock")
+	}
+
+	c := loadGolden(t, "../../test_cases/028-attenuate-grid-peaks-long-horizon.json")
+	limit := 10.0
+	got, err := Solve(c.Request, settings.Settings{TimeLimit: &limit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "Optimal" && got.Status != "Feasible" {
+		t.Fatalf("status = %q, want a usable result", got.Status)
+	}
+	if got.ObjectiveValue == nil {
+		t.Fatal("objective_value is nil, want the cost-stage optimum")
+	}
+	if want := 6.037596089425657; math.Abs(*got.ObjectiveValue-want) > 1e-3 {
+		t.Fatalf("objective %v, want the cost-stage optimum %v", *got.ObjectiveValue, want)
 	}
 }
 
