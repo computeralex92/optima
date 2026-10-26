@@ -161,9 +161,27 @@ func TestAssembleSolvedShapes(t *testing.T) {
 			br.StateOfCharge[step] != snap(sol.ColValues[mo.s[0][step]]) {
 			t.Fatalf("battery mapping at step=%d", step)
 		}
-		if res.FlowDirection[step] != int(sol.ColValues[mo.y[step]]) {
+		if res.FlowDirection[step] != int(math.Round(sol.ColValues[mo.y[step]])) {
 			t.Fatalf("flow_direction[%d] = %d", step, res.FlowDirection[step])
 		}
+	}
+}
+
+// TestAssembleRoundsNearlyIntegerFlow: HiGHS returns a binary a hair off the
+// integer (0.99999999999999). flow_direction must round it to 1; truncating
+// reports a step that exports energy as importing.
+func TestAssembleRoundsNearlyIntegerFlow(t *testing.T) {
+	mo := buildModel(toyGoalProblem())
+	sol := blankSol(mo)
+	sol.ColValues[mo.e[0]] = 42
+	sol.ColValues[mo.y[0]] = 0.99999999999999134
+	sol.ColValues[mo.y[1]] = 1e-13
+	res := mo.assemble(sol, "Optimal")
+	if res.FlowDirection[0] != 1 {
+		t.Fatalf("flow_direction[0] = %d, want 1 (export)", res.FlowDirection[0])
+	}
+	if res.FlowDirection[1] != 0 {
+		t.Fatalf("flow_direction[1] = %d, want 0 (import)", res.FlowDirection[1])
 	}
 }
 

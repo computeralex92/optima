@@ -45,7 +45,10 @@ func (mo *model) assemble(sol *highs.Solution, status string) Result {
 		}
 		res.GridImport = append(res.GridImport, snap(imp))
 		res.GridExport = append(res.GridExport, snap(sol.Value(mo.e[t])))
-		res.FlowDirection = append(res.FlowDirection, int(sol.Value(mo.y[t])))
+		// Round, don't truncate: HiGHS returns a binary a hair off the integer
+		// (0.99999999999999), and truncation would report an exporting step as
+		// importing.
+		res.FlowDirection = append(res.FlowDirection, int(math.Round(sol.Value(mo.y[t]))))
 	}
 
 	if mo.excImp != nil {
