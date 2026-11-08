@@ -30,19 +30,60 @@ func Solve(in Input, s settings.Settings) (Result, error) {
 	return res, err
 }
 
+// probeShare is the fraction of OPTIMIZER_TIME_LIMIT the joint probe may spend
+// before the request falls back to the split cascade (spec 6). A request that
+// ends up splitting pays the probe, so the probe gets less than half the clock;
+// a request it proves never needs the split stages at all.
+const probeShare = 0.2
+
 // run drives the lexicographic cascade on one built model. All stages share a
-// single wall clock. Stage A (cost) always runs, stage C (preference) runs when
-// the preference row has a nonzero coefficient, stage D (continuity) when a
-// c_min > 0 battery exists; the peak stage is a no-op until Task 10 wires it.
+// single wall clock. When a preference tie-break is active and no peak strategy
+// claims its own priority, a joint probe (cost + preferences) runs first: a
+// proven answer takes path joint and skips stages A-C. Otherwise stage A (cost)
+// always runs, stage C (preference) runs when the preference row has a nonzero
+// coefficient, and stage D (continuity) when a c_min > 0 battery exists.
 func (mo *model) run(s settings.Settings) (Result, error) {
 	var deadline time.Time
 	if s.TimeLimit != nil {
 		deadline = time.Now().Add(time.Duration(*s.TimeLimit * float64(time.Second)))
 	}
 
-	mo.stages = make(map[string]float64, 4)
+	mo.stages = make(map[string]float64, 5)
+	mo.path = "split"
 
-	// Stage A: cost (T1, spec 5.3). Always runs.
+	// Probe (spec 6): solve cost and preferences in one objective. Preference
+	// coefficients are the tiny tie-break terms, so money still dominates. A
+	// proven solve has settled both, which is strictly better than a split: it
+	// never needs a cost bound or a preference budget to protect the money.
+	// Peak strategies are excluded: their peak stage has its own lexicographic
+	// priority, not a tie-break weight to fold into the probe. A nonzero
+	// OPTIMIZER_PREFERENCE_BUDGET also excludes it: that budget exists to let the
+	// split's tie-break spend currency, which the joint objective cannot express.
+	var probeSol *highs.Solution
+	if s.PreferenceBudget == 0 && hasNonzero(mo.prefRow) && !hasNonzero(mo.peakRow) {
+		probeDeadline := deadline
+		if s.TimeLimit != nil {
+			probeDeadline = time.Now().Add(time.Duration(probeShare * *s.TimeLimit * float64(time.Second)))
+			if !deadline.IsZero() && probeDeadline.After(deadline) {
+				probeDeadline = deadline
+			}
+		}
+		t0 := time.Now()
+		psol, err := mo.stage(mo.probeCoeffs(), costGap(mo.prob, s), probeDeadline, s)
+		mo.stages["probe"] = time.Since(t0).Seconds()
+		// The probe is a shortcut, not the answer: a failed or truncated probe
+		// must not take the request down with it. A usable incumbent is kept as
+		// the fallback in case the split finds nothing.
+		if err == nil && mo.retain(psol) {
+			if psol.Status == highs.ModelStatusOptimal {
+				mo.path = "joint"
+				return mo.finishJoint(psol, deadline, s)
+			}
+			probeSol = psol
+		}
+	}
+
+	// Stage A: cost (T1, spec 5.3). Always runs outside the joint path.
 	t0 := time.Now()
 	sol, err := mo.stage(mo.costCoeffs(), costGap(mo.prob, s), deadline, s)
 	mo.stages["cost"] = time.Since(t0).Seconds()
@@ -53,6 +94,10 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 	// incumbent, so a no-incumbent stop can look Feasible; the safety pass below is
 	// the net. A full fix needs primal_solution_status, absent in this binding.
 	if sol == nil || !sol.HasSolution() {
+		if probeSol != nil {
+			mo.prefSummary = strconv.FormatFloat(objective(mo.prefRow, probeSol), 'g', -1, 64)
+			return mo.finalizeStatus(probeSol, probeSol.Status), nil
+		}
 		st := highs.ModelStatusNotSet
 		if sol != nil {
 			st = sol.Status
@@ -125,17 +170,49 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 		mo.pinLower(mo.prefRow, pv, pinEps)
 	}
 
-	// Stage D: continuity (T4, spec 5.3). Runs when a c_min > 0 battery exists
-	// (startRow is nonzero) and the incumbent still has a reducible start count,
-	// under the cost bound and, when the preference stage retained, the preference
-	// bound. The objective is the integral count of charge starts, so gap 0 asks
-	// for proven optimality and nothing is normalized away.
+	// Stage D: continuity (T4, spec 5.3), shared with the joint path.
+	sol, status, err = mo.runContinuity(sol, status, deadline, s)
+	if err != nil {
+		return Result{}, err
+	}
+
+	// Final safety pass (spec 6.1): never report a schedule that breaks the model.
+	return mo.finalizeStatus(sol, status), nil
+}
+
+// finishJoint closes the probe path: pin the cost and preference values the
+// probe proved, then run continuity under both bounds. It is the joint-path
+// counterpart of stages A-C and shares stage D with the split path, so a joint
+// answer is never worse than a split one on either objective.
+func (mo *model) finishJoint(sol *highs.Solution, deadline time.Time, s settings.Settings) (Result, error) {
+	// The probe only runs with a zero preference budget, so the cost pin uses the
+	// same pinEps slack as the split path at its default budget.
+	mo.pinLower(mo.costRow, objective(mo.costRow, sol), pinEps)
+
+	pv := objective(mo.prefRow, sol)
+	mo.prefAfterC = &pv
+	mo.prefSummary = strconv.FormatFloat(pv, 'g', -1, 64)
+	mo.pinLower(mo.prefRow, pv, pinEps)
+
+	sol, status, err := mo.runContinuity(sol, sol.Status, deadline, s)
+	if err != nil {
+		return Result{}, err
+	}
+	return mo.finalizeStatus(sol, status), nil
+}
+
+// runContinuity is stage D (spec 5.3). It runs when a c_min > 0 battery exists
+// (startRow is nonzero) and the incumbent still has a reducible start count,
+// under the cost bound and, when the preference stage ran, the preference bound.
+// The objective is the integral count of charge starts, so gap 0 asks for proven
+// optimality and nothing is normalized away.
+func (mo *model) runContinuity(sol *highs.Solution, status highs.ModelStatus, deadline time.Time, s settings.Settings) (*highs.Solution, highs.ModelStatus, error) {
 	if hasNonzero(mo.startRow) && mo.canReduceStarts(sol) {
 		t0 := time.Now()
 		dsol, err := mo.stage(mo.startCoeffs(), 0, deadline, s)
 		mo.stages["continuity"] = time.Since(t0).Seconds()
 		if err != nil {
-			return Result{}, err
+			return nil, status, err
 		}
 		// Retain only a schedule with strictly fewer sessions than the incumbent.
 		// The earlier stages leave start[i][t] free, so its value there is not the
@@ -146,9 +223,7 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 		}
 		mo.contSummary = "starts=" + strconv.Itoa(mo.countStarts(sol))
 	}
-
-	// Final safety pass (spec 6.1): never report a schedule that breaks the model.
-	return mo.finalizeStatus(sol, status), nil
+	return sol, status, nil
 }
 
 // hasNonzero reports whether a sparse objective row carries at least one nonzero

@@ -19,6 +19,18 @@ func (mo *model) costCoeffs() []float64 {
 	return mo.dense(mo.costRow)
 }
 
+// probeCoeffs returns the joint probe objective: cost plus the tiny preference
+// tie-break terms (spec 6). Money dominates because the preference coefficients
+// are several orders of magnitude smaller than any price, so proving the sum
+// settles the cost optimum and the tie break in one solve.
+func (mo *model) probeCoeffs() []float64 {
+	costs := mo.costCoeffs()
+	for _, c := range mo.prefRow {
+		costs[c.col] += c.val
+	}
+	return costs
+}
+
 // cleanValue recomputes the reported objective from a solution (spec 5.3): grid
 // import cost (including excImp when an import limit is set) + export revenue +
 // (s[i][T-1] - s_initial)*p_a + the demand-rate charge. No penalties, no

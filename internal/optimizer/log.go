@@ -65,7 +65,7 @@ func SolveLogged(in Input, client string, s settings.Settings) (Result, SolveInf
 		Client:      client,
 		Elapsed:     time.Since(start),
 		Stages:      mo.stages,
-		Path:        "cascade",
+		Path:        mo.path,
 		Preferences: mo.prefSummary,
 		Continuity:  mo.contSummary,
 		Status:      res.Status,

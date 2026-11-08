@@ -22,8 +22,8 @@ func TestSolveLoggedMetadata(t *testing.T) {
 	if info.Elapsed <= 0 {
 		t.Fatalf("elapsed %v, want > 0", info.Elapsed)
 	}
-	if info.Path != "cascade" {
-		t.Fatalf("path %q, want cascade", info.Path)
+	if info.Path != "split" {
+		t.Fatalf("path %q, want split", info.Path)
 	}
 	if info.Status != res.Status {
 		t.Fatalf("info status %q != result status %q", info.Status, res.Status)
@@ -47,5 +47,34 @@ func TestSolveLoggedMetadata(t *testing.T) {
 	if res2.Status != res.Status || res2.ObjectiveValue == nil || res.ObjectiveValue == nil ||
 		*res2.ObjectiveValue != *res.ObjectiveValue {
 		t.Fatalf("Solve wrapper diverged: %+v vs %+v", res2, res)
+	}
+}
+
+// TestSolveJointProbe pins the probe path: a plain strategy request (no peak
+// strategy, no preference budget) proves the joint cost+preference objective in
+// one solve, so the split's cost and preference stages never run.
+func TestSolveJointProbe(t *testing.T) {
+	in := loadCase(t, "../../test_cases/009-discharge-before-import.json")
+
+	res, info, err := SolveLogged(in, "", settings.Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ObjectiveValue == nil {
+		t.Fatal("objective_value is nil")
+	}
+	if info.Path != "joint" {
+		t.Fatalf("path %q, want joint", info.Path)
+	}
+	if _, ok := info.Stages["probe"]; !ok {
+		t.Fatalf("stages %v, want a probe entry", info.Stages)
+	}
+	for _, stage := range []string{"cost", "preference"} {
+		if _, ok := info.Stages[stage]; ok {
+			t.Fatalf("stage %q ran on the joint path; stages %v", stage, info.Stages)
+		}
+	}
+	if info.Preferences == "" {
+		t.Fatal("preferences not recorded on the joint path")
 	}
 }
