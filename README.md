@@ -138,8 +138,10 @@ how upstream changes are absorbed, and the registry of deliberate divergences.
 - **Continuity as a real objective.** Charge starts are minimized under hard cost,
   peak and preference bounds, so the result can never trade away money or preference
   value for a nicer schedule.
-- **Better performance.** A modern solver, a shorter lexicographic cascade with fewer
-  solves than the original's five stages, and native parallelism.
+- **Better performance.** A modern solver, a joint cost+preference probe that settles
+  the common request in one solve instead of two, and native parallelism. On the
+  captured production traffic this is faster than upstream at mean and p50; see
+  [`docs/benchmarks/2026-11-08-upstream-replay.md`](docs/benchmarks/2026-11-08-upstream-replay.md).
 
 ## Layout
 

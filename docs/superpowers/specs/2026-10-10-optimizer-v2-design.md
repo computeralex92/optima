@@ -178,26 +178,39 @@ positive under zero or negative prices.
 
 ## 6. Solve orchestration
 
-A lexicographic cascade. Each stage optimizes its objective, then pins the achieved
-value with a bound row (tolerance `eps`) before the next stage runs. Stages that do
-not apply are skipped. All stages share one wall clock derived from
-`OPTIMIZER_TIME_LIMIT`.
+A lexicographic cascade with a joint shortcut. Each stage optimizes its objective,
+then pins the achieved value with a bound row (tolerance `eps`) before the next
+stage runs. Stages that do not apply are skipped. All stages share one wall clock
+derived from `OPTIMIZER_TIME_LIMIT`.
 
 | stage | objective | runs when | HiGHS stop |
 |---|---|---|---|
-| A `cost` | T1 | always | `mip_rel_gap` from gap_abs / gap_share, time slice |
+| P `probe` | T1 + T3 | a T3 term is active, no peak strategy, and `PREFERENCE_BUDGET` is 0 | `mip_rel_gap` from gap_abs / gap_share; `PROBE_SHARE` 0.2 of the time limit |
+| A `cost` | T1 | the probe did not prove its answer | `mip_rel_gap` from gap_abs / gap_share, time slice |
 | B `peak` | T2 | a peak strategy is set | gap 0, small slice |
-| C `preference` | T3 | any T3 term or peak smoothing | gap 0 (proven-optimal tie break) |
+| C `preference` | T3 | any T3 term or peak smoothing, on the split path | gap 0 (proven-optimal tie break) |
 | D `continuity` | T4 | a `c_min > 0` battery could have more than one session | gap 0, small slice |
+
+The probe merges cost and preferences into one objective. Preference coefficients
+are the tiny tie-break terms (T3), so money still dominates; proving the sum
+settles the cost optimum and the tie break together. A proven probe is path
+`joint` and skips A-C: both values are pinned and continuity runs under both
+bounds. A probe that stops at its slice, or fails, falls back to path `split`
+with stages A-D unchanged; its incumbent is kept in case the cost stage finds
+nothing. Peak strategies are excluded because stage B has its own lexicographic
+priority. A nonzero `OPTIMIZER_PREFERENCE_BUDGET` is also excluded: that budget
+lets the split's tie-break spend currency, which the joint objective cannot
+express.
 
 Bound rows, with `eps` small:
 
+- after P: `cost >= valueP - eps`, `preference >= valueP - eps`
 - after A: `cost >= valueA - eps`
 - after B: `peak <= valueB + eps`
 - after C: `preference >= valueC - eps`
 
-Continuity runs under all three bounds. This is what makes continuity and the tie
-breaks "real" objectives: they can never trade away money or a higher-priority
+Continuity runs under all active bounds. This is what makes continuity and the
+tie breaks "real" objectives: they can never trade away money or a higher-priority
 preference, unlike the original's bounded-but-approximate stage.
 
 The clean value is recomputed from the final solution for the payload.
@@ -216,13 +229,16 @@ The clean value is recomputed from the final solution for the payload.
 ### 6.2 Solver options
 
 Per stage: `output_flag=false`, `threads` from settings, `presolve=on`, and a stage
-time limit. Stages A/B/C/D use `mip_rel_gap` as above (0 where noted). Objective
+time limit. Stages P/A/B/C/D use `mip_rel_gap` as above (0 where noted). Objective
 scaling is dropped; each stage's objective is homogeneous and HiGHS scales
 internally. The preference-stage objective may be normalized to unit magnitude so its
 gap tolerance is meaningful.
 
 ## 7. Improvements over the baseline
 
+- **Joint probe.** When only a tie-break strategy applies, cost and preferences are
+  proved together in one solve instead of two, which removes the second full solve
+  that dominated the common request. See the 2026-11-08 replay benchmark.
 - **Peak-profile smoothing.** The original penalizes only the horizon maximum, so
   once a fixed load pins the peak a plateau and a jagged profile score alike. Stage B
   minimizes the peak; stage C then minimizes total absolute step-to-step change under
@@ -248,14 +264,17 @@ Prefix `OPTIMIZER_`, matching the original names where they still apply:
 - `OPTIMIZER_LOG_SUBJECT` (bool, default false)
 - `OPTIMIZER_DUMP_SLOW_REQUESTS` (path, unset disables)
 
-`OPTIMIZER_PROBE_SECONDS` is dropped: there is no probe stage.
+`OPTIMIZER_PROBE_SECONDS` is dropped. The probe is always on and takes a fixed
+`PROBE_SHARE` 0.2 of `OPTIMIZER_TIME_LIMIT`; it is skipped when it cannot help
+(see section 6), and without a time limit it solves to proven optimality.
 
 ## 9. Observability
 
 - One structured JSON line per request, `{"solve": {...}}` with keys `client`,
   `elapsed`, `stages`, `path`, `preferences`, `continuity`, `status`, `steps`. The
-  semantics reflect our cascade (`stages` maps stage name to seconds; `path` is
-  `cascade`), keeping the key set stable for log tooling.
+  semantics reflect our solve (`stages` maps stage name to seconds; `path` is
+  `joint` when the probe proved the combined objective, `split` when the cascade
+  ran), keeping the key set stable for log tooling.
 - Slow requests (time limit exhausted) and cost stages left with an open gap are
   appended as JSON Lines to `OPTIMIZER_DUMP_SLOW_REQUESTS`.
 - `OPTIMIZER_LOG_SUBJECT`: when set, log the JWT `sub` from `Authorization: Bearer`

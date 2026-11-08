@@ -76,13 +76,14 @@ type model struct {
 
 	costRow, prefRow, peakRow, startRow []coef
 
-	// prefAfterC is the preference value stage C reached, recorded unconditionally
-	// when the preference stage runs. It is a seam for the in-package regression
-	// that stage D cannot trade that value away; nil when no preference stage ran.
+	// prefAfterC is the preference value stage C or the joint probe reached,
+	// recorded unconditionally when either runs. It is a seam for the in-package
+	// regression that stage D cannot trade that value away; nil when neither ran.
 	prefAfterC *float64
 
 	// Observability (spec 9), filled by run and surfaced through SolveLogged.
 	stages      map[string]float64
+	path        string
 	prefSummary string
 	contSummary string
 }
