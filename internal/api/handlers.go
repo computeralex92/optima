@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/computeralex92/optima/internal/explain"
@@ -21,6 +22,9 @@ import (
 type handler struct {
 	settings      settings.Settings
 	explainClient *explain.Client
+
+	planMu   sync.RWMutex
+	lastPlan *storedPlan
 }
 
 // maxRequestBody caps a charge-schedule body at 8 MiB. The largest vendored case
@@ -96,6 +100,7 @@ func (h *handler) chargeSchedule(w http.ResponseWriter, r *http.Request) {
 	logSolve(info)
 	h.dumpRequests(info, raw, res)
 	h.dumpSlow(info, raw, res)
+	h.rememberPlan(raw, res)
 
 	writeJSON(w, http.StatusOK, res)
 }

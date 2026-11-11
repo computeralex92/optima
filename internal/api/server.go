@@ -25,5 +25,7 @@ func NewServer(s settings.Settings) http.Handler {
 	mux.HandleFunc("GET /optimize/health", h.health)
 	mux.HandleFunc("POST /optimize/explain", h.explainPlan)
 	mux.HandleFunc("POST /optimize/explain/feedback", h.explainFeedback)
+	mux.HandleFunc("GET /debug", h.debugPage)
+	mux.HandleFunc("GET /debug/last-plan", h.lastPlanHandler)
 	return mux
 }

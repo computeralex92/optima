@@ -54,6 +54,9 @@ curl localhost:7050/optimize/health
 # {"status":"healthy","message":"EV Charging MILP API is running"}
 ```
 
+Open <http://localhost:7050/debug> for the debug page: the last solved plan,
+its raw JSON, and a button that calls `/optimize/explain`.
+
 Solve a vendored case and render the schedule:
 
 ```sh
