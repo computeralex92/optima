@@ -27,6 +27,16 @@ SOC bounds, `c_min` gating) hold. Schedule arrays are deliberately not compared.
 This is enforced by `internal/optimizer/conformance_test.go` (`TestConformance`) and
 is the only acceptance gate for absorbing upstream changes.
 
+## evcc UI constraint (evcc ≥ 0.319.0)
+
+evcc renders its "Explain plan" card only when its optimizer URI is the hosted
+service (`optimizer.evcc.io`). For any self-hosted optimizer the card is hidden,
+even when `/optimize/explain` works — the endpoint and its JSON are unchanged.
+Call it directly, through evcc's ungated `POST /api/optimizer/explain`, or from
+the bundled `/debug` page. evcc ≥ 0.319.0 also stops sending its sponsor token to
+self-hosted optimizers, so `OPTIMIZER_LOG_SUBJECT` stays empty for
+evcc-originated solves.
+
 ## Absorbing upstream changes
 
 `openapi.yaml` and `test_cases/` are vendored from upstream at the revision recorded
