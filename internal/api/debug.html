@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>optima · debug</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 0; }
+  main { max-width: 60rem; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+  .muted { color: #888; margin: 0 0 1.5rem; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .75rem; margin: 0 0 1.5rem; }
+  .facts div { border: 1px solid #8884; border-radius: .4rem; padding: .5rem .75rem; }
+  dt { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: #888; }
+  dd { margin: .1rem 0 0; font-variant-numeric: tabular-nums; }
+  .controls { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; margin-bottom: 1rem; }
+  input, textarea, button { font: inherit; }
+  input { width: 5rem; padding: .3rem .4rem; }
+  textarea { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; font-size: .85rem; }
+  button { padding: .4rem 1rem; border-radius: .4rem; border: 1px solid #8888; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .error { color: #c33; min-height: 1.5em; margin: .25rem 0; }
+  pre { background: #8881; border-radius: .4rem; padding: .75rem; overflow: auto; white-space: pre-wrap; }
+  details { margin-top: .75rem; }
+  summary { cursor: pointer; color: #888; }
+  code { font-family: ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Debug Page</h1>
+    <p class="muted">Last solved plan and plan explanation. <a href="/optimize/health">health</a></p>
+  </header>
+
+  <section id="plan" hidden>
+    <dl class="facts">
+      <div><dt>status</dt><dd id="f-status">—</dd></div>
+      <div><dt>objective</dt><dd id="f-objective">—</dd></div>
+      <div><dt>steps</dt><dd id="f-steps">—</dd></div>
+      <div><dt>batteries</dt><dd id="f-batteries">—</dd></div>
+      <div><dt>solved</dt><dd id="f-solved">—</dd></div>
+    </dl>
+
+    <div class="controls">
+      <label>language <input id="language" size="6"></label>
+      <label>currency <input id="currency" size="4" value="EUR"></label>
+      <button id="explain">Explain plan</button>
+    </div>
+    <p id="error" class="error" role="alert"></p>
+    <pre id="explanation" hidden></pre>
+
+    <details><summary>Raw request</summary><pre id="raw-req"></pre></details>
+    <details><summary>Raw response</summary><pre id="raw-res"></pre></details>
+  </section>
+
+  <section id="paste" hidden>
+    <p class="muted" id="paste-reason"></p>
+    <label for="paste-json">Paste an explain payload (<code>{"req":…,"res":…}</code>)</label>
+    <textarea id="paste-json" rows="12" spellcheck="false" placeholder='{"req": …}'></textarea>
+    <p><button id="use-paste">Use pasted plan</button></p>
+  </section>
+</main>
+<script>
+const byId = id => document.getElementById(id);
+let plan = null;
+
+function setError(msg) { byId('error').textContent = msg; }
+
+function showPlan(p, at) {
+  plan = { req: p.req, res: p.res };
+  byId('f-status').textContent = p.res?.status ?? '—';
+  const objective = p.res?.objective_value;
+  byId('f-objective').textContent = typeof objective === 'number' ? objective.toFixed(2) : '—';
+  byId('f-steps').textContent = p.req?.time_series?.dt?.length ?? '—';
+  byId('f-batteries').textContent = p.res?.batteries?.length ?? '—';
+  byId('f-solved').textContent = at ? new Date(at).toLocaleString() : 'pasted';
+  byId('raw-req').textContent = JSON.stringify(p.req, null, 2);
+  byId('raw-res').textContent = JSON.stringify(p.res, null, 2);
+  byId('plan').hidden = false;
+  byId('paste').hidden = true;
+  setError('');
+}
+
+async function load() {
+  try {
+    const resp = await fetch('/debug/last-plan', { cache: 'no-store' });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.message || `HTTP ${resp.status}`);
+    if (!data.req || !data.res) throw new Error('response has no plan');
+    showPlan(data, data.at);
+  } catch (err) {
+    byId('paste-reason').textContent = `No solved plan yet (${err.message}). Paste one below.`;
+    byId('paste').hidden = false;
+  }
+}
+
+async function explain() {
+  if (!plan) return;
+  const button = byId('explain');
+  button.disabled = true;
+  byId('explanation').hidden = true;
+  setError('');
+  try {
+    const resp = await fetch('/optimize/explain', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        req: plan.req,
+        res: plan.res,
+        language: byId('language').value.trim() || 'en',
+        currency: byId('currency').value.trim(),
+      }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.message || `HTTP ${resp.status}`);
+    byId('explanation').textContent = data.explanation || '';
+    byId('explanation').hidden = false;
+  } catch (err) {
+    setError(err.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+byId('explain').addEventListener('click', explain);
+
+byId('use-paste').addEventListener('click', () => {
+  try {
+    const parsed = JSON.parse(byId('paste-json').value);
+    if (!parsed.req || !parsed.res) throw new Error('payload needs req and res');
+    showPlan(parsed, null);
+  } catch (err) {
+    byId('paste-reason').textContent = `Invalid payload: ${err.message}`;
+    byId('paste').hidden = false;
+  }
+});
+
+byId('language').value = (navigator.language || 'en').split('-')[0];
+load();
+</script>
+</body>
+</html>

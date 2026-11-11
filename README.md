@@ -54,6 +54,9 @@ curl localhost:7050/optimize/health
 # {"status":"healthy","message":"EV Charging MILP API is running"}
 ```
 
+Open <http://localhost:7050/debug> for the debug page: the last solved plan,
+its raw JSON, and a button that calls `/optimize/explain`.
+
 Solve a vendored case and render the schedule:
 
 ```sh
@@ -122,6 +125,12 @@ used. Without either, `/optimize/explain` returns 503.
 Plan data is sent to that provider whenever `/optimize/explain` is called. Leave
 both the generic and Azure settings unset to keep explanations disabled; the
 charge-schedule endpoint never calls an external service.
+
+From evcc 0.319.0 on, evcc's UI shows the "Explain plan" card only when its
+optimizer URI is the hosted service, so a self-hosted optima has to use the
+bundled [`/debug`](http://localhost:7050/debug) page or call `/optimize/explain`
+directly. evcc also no longer sends its sponsor token to self-hosted optimizers,
+so `OPTIMIZER_LOG_SUBJECT` stays empty on evcc-originated solves.
 
 See [`docs/compatibility.md`](docs/compatibility.md) for the compatibility contract,
 how upstream changes are absorbed, and the registry of deliberate divergences.
