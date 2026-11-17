@@ -2,6 +2,7 @@ package optimizer
 
 import (
 	"math"
+	"sort"
 
 	"github.com/bartolsthoorn/gohighs/highs"
 )
@@ -9,6 +10,16 @@ import (
 // bigM is the global big-M used where a per-step cap cannot tighten a direction
 // constraint (spec 5.2.2). Matches the original's default.
 const bigM = 1e6
+
+const (
+	// hedgeTieDiscount prices the hedge just below its worth, so a schedule that
+	// only ties the worst case keeps the plan the forecast prefers.
+	hedgeTieDiscount = 1e-3
+	// hedgeWindow is how far the worst case looks back. The schedule is replanned
+	// long before a day has passed, so older forecast errors are behind it;
+	// counting from the horizon start would grow the reserve day by day.
+	hedgeWindow = 86400
+)
 
 // coef is one entry of a sparse objective row: column index and coefficient.
 type coef struct {
@@ -71,6 +82,9 @@ type model struct {
 	peakImp, peakExp int   // >= horizon peak power per side
 	dev              []int // profile roughness
 
+	// Hedge against forecast errors (Bertsimas and Sim), nil unless active.
+	uImp, uImpSum, uChg, uRes []int
+
 	peakSides   []string
 	penaltyBase float64
 
@@ -80,6 +94,11 @@ type model struct {
 	// recorded unconditionally when either runs. It is a seam for the in-package
 	// regression that stage D cannot trade that value away; nil when neither ran.
 	prefAfterC *float64
+
+	// costProven reports whether the cost stage proved the money it reports. A
+	// tie break can prove its own objective under the cost bound, never that
+	// bound itself, so Optimal requires both.
+	costProven bool
 
 	// Observability (spec 9), filled by run and surfaced through SolveLogged.
 	stages      map[string]float64
@@ -94,9 +113,10 @@ type model struct {
 func buildModel(p Problem) *model {
 	T := len(p.Series.GT)
 	mo := &model{
-		m:    &highs.Model{Maximize: true},
-		T:    T,
-		prob: p,
+		m:          &highs.Model{Maximize: true},
+		T:          T,
+		prob:       p,
+		costProven: true,
 	}
 	mo.h = make([]float64, T)
 	mo.invH = make([]float64, T)
@@ -233,6 +253,20 @@ func buildModel(p Problem) *model {
 	mo.peakImp = mo.addVar(0, highs.Inf(), highs.Continuous)
 	mo.peakExp = mo.addVar(0, highs.Inf(), highs.Continuous)
 
+	// worst-case recourse to the forecast error; see hedged and worstDeviation
+	if mo.hedged() {
+		mo.uImp = make([]int, T)
+		mo.uImpSum = make([]int, T)
+		mo.uChg = make([]int, T)
+		mo.uRes = make([]int, T)
+		for t := 0; t < T; t++ {
+			mo.uImp[t] = mo.addVar(0, highs.Inf(), highs.Continuous)
+			mo.uImpSum[t] = mo.addVar(0, highs.Inf(), highs.Continuous)
+			mo.uChg[t] = mo.addVar(0, highs.Inf(), highs.Continuous)
+			mo.uRes[t] = mo.addVar(0, highs.Inf(), highs.Continuous)
+		}
+	}
+
 	// --- constraints (spec 5.2) ---
 
 	// 1. energy balance per step
@@ -347,6 +381,80 @@ func buildModel(p Problem) *model {
 			r2.addScaled(mo.gridPower(side, t), -1)
 			r2.add(mo.dev[t], 1)
 			mo.addGe(r2, 0) // dev >= p[t-1] - p[t]
+		}
+	}
+
+	// 15. hedge against forecast errors, see hedged and worstDeviation
+	if mo.uImp != nil {
+		worst := mo.worstDeviation()
+		var reserve []int
+		for i, b := range p.Batteries {
+			if b.DMax > 0 {
+				reserve = append(reserve, i)
+			}
+		}
+		for t := 0; t < T; t++ {
+			// extra import accumulates: running <= running[t-1] + u_imp + u_chg
+			var r1 coefRow
+			r1.add(mo.uImpSum[t], 1)
+			if t > 0 {
+				r1.add(mo.uImpSum[t-1], -1)
+			}
+			r1.add(mo.uImp[t], -1)
+			r1.add(mo.uChg[t], -1)
+			mo.addLe(r1, 0)
+
+			// extra import replaces a discharge the shortfall made impossible or
+			// covers the shortfall as it arrives; it cannot be booked ahead cheaper
+			var r2 coefRow
+			r2.add(mo.uImp[t], 1)
+			for _, i := range reserve {
+				r2.add(mo.d[i][t], -1)
+			}
+			arriving := worst[t]
+			if t > 0 {
+				arriving -= worst[t-1]
+			}
+			mo.addLe(r2, math.Max(arriving, 0))
+
+			// a cheap step may refill the shortfall with unused charge power
+			var r3 coefRow
+			r3.add(mo.uChg[t], 1)
+			refill := 0.0
+			for _, i := range reserve {
+				if !p.Batteries[i].ChargeFromGrid {
+					continue
+				}
+				roundTrip := p.EtaC * p.EtaD
+				r3.add(mo.c[i][t], roundTrip)
+				refill += roundTrip * p.Batteries[i].CMax * mo.h[t]
+			}
+			mo.addLe(r3, refill)
+
+			// stored Wh reach the load at the discharge efficiency
+			var r4 coefRow
+			r4.add(mo.uImpSum[t], 1)
+			supplied := worst[t]
+			for _, i := range reserve {
+				r4.add(mo.s[i][t], p.EtaD)
+				r4.add(mo.sMinPen[i][t], p.EtaD)
+				supplied += p.EtaD * p.Batteries[i].SMin
+			}
+			mo.addGe(r4, supplied)
+
+			mo.addSingle(mo.uImpSum[t], 1, worst[t])
+
+			// the reserve the worst case consumes instead of importing, what
+			// step t adds to it
+			var r5 coefRow
+			r5.add(mo.uRes[t], 1)
+			r5.add(mo.uImpSum[t], 1)
+			usedBefore := worst[t]
+			if t > 0 {
+				r5.add(mo.uImpSum[t-1], -1)
+				usedBefore -= worst[t-1]
+			}
+			mo.addGe(r5, usedBefore)
 		}
 	}
 
@@ -539,6 +647,31 @@ func buildModel(p Problem) *model {
 		}
 	}
 
+	// cost of the budgeted forecast error: the extra import it forces at the
+	// import price of the step it is drawn in, and the reserve it consumes at
+	// what the plan values that energy at. A negative price would reward drawing
+	// more, so it is floored at zero; a load Wh refilled through the batteries
+	// costs the round trip.
+	if mo.uImp != nil {
+		for t := 0; t < T; t++ {
+			price := math.Max(p.Series.PN[t], 0) * (1 - hedgeTieDiscount)
+			mo.costRow = append(mo.costRow,
+				coef{mo.uImp[t], -price},
+				coef{mo.uChg[t], -price / (p.EtaC * p.EtaD)},
+			)
+		}
+		stored := 0.0
+		for _, b := range p.Batteries {
+			if b.DMax > 0 {
+				stored = math.Max(stored, b.PA)
+			}
+		}
+		reservePrice := math.Max(math.Max(maxFloat(p.Series.PE), stored/p.EtaD), 0) * (1 - hedgeTieDiscount)
+		for _, col := range mo.uRes {
+			mo.costRow = append(mo.costRow, coef{col, -reservePrice})
+		}
+	}
+
 	if p.Strategy.ChargingStrategy == "charge_before_export" {
 		for range p.Batteries {
 			for t := 0; t < T; t++ {
@@ -633,6 +766,74 @@ func activePeakSides(s Strategy) []string {
 		return []string{"imp", "exp"}
 	}
 	return nil
+}
+
+// hedged reports whether the model carries the hedge: a budget and a step whose
+// forecast can deviate.
+func (mo *model) hedged() bool {
+	u := mo.prob.Uncertainty
+	if u.Budget <= 0 || (u.FtDev <= 0 && u.GtDev <= 0) {
+		return false
+	}
+	for t := 0; t < mo.T; t++ {
+		if mo.deviation(t) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// deviation is the adverse forecast deviation of step t in Wh, less solar and
+// more demand at once, beyond what the step spills anyway. Surplus above what all
+// batteries can take in the step is exported or curtailed whatever the schedule,
+// so a shortfall up to it only reduces that and never reaches the batteries.
+func (mo *model) deviation(t int) float64 {
+	u := mo.prob.Uncertainty
+	ts := mo.prob.Series
+	deviation := u.FtDev*ts.FT[t] + u.GtDev*ts.GT[t]
+	spill := ts.FT[t] - ts.GT[t]
+	for _, b := range mo.prob.Batteries {
+		spill -= b.CMax * mo.h[t]
+	}
+	return math.Max(deviation-math.Max(spill, 0), 0)
+}
+
+// worstDeviation is the budgeted worst case per step: the largest `budget`
+// deviations of the day up to it, Wh. A fractional budget counts its last step
+// in part, as in Bertsimas and Sim.
+func (mo *model) worstDeviation() []float64 {
+	T := mo.T
+	budget := math.Min(mo.prob.Uncertainty.Budget, float64(T))
+	size := int(math.Ceil(budget))
+	part := budget - math.Floor(budget)
+
+	end := make([]float64, T)
+	dev := make([]float64, T)
+	cum := 0.0
+	for t := 0; t < T; t++ {
+		cum += float64(mo.prob.Series.DT[t])
+		end[t] = cum
+		dev[t] = mo.deviation(t)
+	}
+
+	worst := make([]float64, T)
+	for t := 0; t < T; t++ {
+		first := 0
+		for first <= t && end[first] <= end[t]-hedgeWindow {
+			first++
+		}
+		window := append([]float64(nil), dev[first:t+1]...)
+		sort.Sort(sort.Reverse(sort.Float64Slice(window)))
+		sum := 0.0
+		for i := 0; i < len(window) && i < size; i++ {
+			sum += window[i]
+		}
+		if part > 0 && size > 0 && len(window) >= size {
+			sum -= (1 - part) * window[size-1]
+		}
+		worst[t] = sum
+	}
+	return worst
 }
 
 func maxFloat(v []float64) float64 {

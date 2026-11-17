@@ -145,6 +145,47 @@ func TestValidateRejectsZeroEta(t *testing.T) {
 	}
 }
 
+// TestValidateRejectsBadUncertainty pins the openapi bounds on the hedge block.
+func TestValidateRejectsBadUncertainty(t *testing.T) {
+	for _, u := range []Uncertainty{
+		{FtDev: 1.5}, {GtDev: -0.1}, {Budget: -1},
+	} {
+		in := Input{Batteries: []Battery{validBattery()}, Series: twoStepSeries(), Uncertainty: &u}
+		err := in.Validate()
+		var ve *ValidationError
+		if !errors.As(err, &ve) {
+			t.Fatalf("%+v: want a validation error", u)
+		}
+		found := false
+		for key := range ve.Details {
+			if key == "uncertainty.ft_dev" || key == "uncertainty.gt_dev" || key == "uncertainty.budget" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("%+v: want an uncertainty detail, got %v", u, ve.Details)
+		}
+	}
+}
+
+// TestValidateRejectsAbsurdStepEnergy pins the openapi 100 MWh maximum on gt/ft
+// and names the offending step.
+func TestValidateRejectsAbsurdStepEnergy(t *testing.T) {
+	for _, series := range []string{"gt", "ft"} {
+		in := Input{Batteries: []Battery{validBattery()}, Series: twoStepSeries()}
+		if series == "gt" {
+			in.Series.GT[1] = 1.47e16
+		} else {
+			in.Series.FT[1] = 1.47e16
+		}
+		err := in.Validate()
+		var ve *ValidationError
+		if !errors.As(err, &ve) || ve.Details["time_series."+series+".1"] == "" {
+			t.Fatalf("%s: want time_series.%s.1 detail, got %v", series, series, err)
+		}
+	}
+}
+
 // TestValidateGoldenRequestsAreValid guards the conformance goal: real golden
 // requests contain negative prices/valuations and must pass validation.
 func TestValidateGoldenRequestsAreValid(t *testing.T) {

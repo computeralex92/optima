@@ -192,6 +192,14 @@ func TestDigestCapacityFallback(t *testing.T) {
 	}
 }
 
+func TestDigestNamesAnUntitledDevice(t *testing.T) {
+	in := testInput()
+	in.Details.BatteryDetails[0] = BatteryDetail{Name: "db:42", Type: "battery", Capacity: 10}
+	if !strings.Contains(Digest(in), `home battery "home battery with id 42"`) {
+		t.Fatalf("digest missing db: name: %s", Digest(in))
+	}
+}
+
 func TestSystemPrompt(t *testing.T) {
 	for _, want := range []string{
 		"You explain an energy plan",

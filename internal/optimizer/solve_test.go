@@ -54,6 +54,23 @@ func TestSolve024CostObjective(t *testing.T) {
 	}
 }
 
+// TestOptimalRequiresProvenCost pins the upstream status rule: a later stage
+// can prove its own objective under the cost bound, never the cost bound itself.
+func TestOptimalRequiresProvenCost(t *testing.T) {
+	p, _ := twoStepProblem()
+	mo := buildModel(p)
+	mo.m.ColCosts = mo.costCoeffs()
+	mo.m.Maximize = true
+	sol, err := mo.m.Solve(highs.WithOutput(false))
+	if err != nil || !sol.HasSolution() {
+		t.Fatalf("solve failed: %v", err)
+	}
+	mo.costProven = false
+	if got := mo.finalizeStatus(sol, highs.ModelStatusOptimal).Status; got != "Feasible" {
+		t.Fatalf("status %q, want Feasible without a proven cost stage", got)
+	}
+}
+
 // TestSolve024PeakFlat is the Task 10 smoothing known answer: case 024 is
 // attenuate_demand_peaks over a flat, PV-less load, so the active import side must
 // end up flat (the dev[t] roughness term) at the minimal horizon peak. The flat

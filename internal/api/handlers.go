@@ -59,6 +59,7 @@ func (h *handler) health(w http.ResponseWriter, _ *http.Request) {
 // successful solve it emits exactly one {"solve": {...}} line to stdout and,
 // when configured, appends request and slow-request dump lines (spec 9).
 func (h *handler) chargeSchedule(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -90,6 +91,15 @@ func (h *handler) chargeSchedule(w http.ResponseWriter, r *http.Request) {
 
 	res, info, err := optimizer.SolveLogged(in, r.UserAgent(), h.settings)
 	if err != nil {
+		// A failing solve reproduces on every retry of the same input, so the
+		// request is the only record of what failed.
+		if h.settings.DumpSlowRequests != "" {
+			appendDump(h.settings.DumpSlowRequests, optimizer.SolveInfo{
+				Client:  r.UserAgent(),
+				Status:  "solve failed",
+				Elapsed: time.Since(start),
+			}, raw, nil)
+		}
 		writeJSON(w, http.StatusInternalServerError, errorResponse{
 			Message: "solve failed: " + err.Error(),
 		})
@@ -170,7 +180,7 @@ func (h *handler) dumpRequests(info optimizer.SolveInfo, raw []byte, res optimiz
 	if h.settings.DumpRequests == "" {
 		return
 	}
-	appendDump(h.settings.DumpRequests, info, raw, res)
+	appendDump(h.settings.DumpRequests, info, raw, &res)
 }
 
 // dumpSlow appends one JSONL record for a request that stopped unproven
@@ -184,13 +194,13 @@ func (h *handler) dumpSlow(info optimizer.SolveInfo, raw []byte, res optimizer.R
 		!(h.settings.TimeLimit != nil && info.Elapsed.Seconds() >= *h.settings.TimeLimit) {
 		return
 	}
-	appendDump(h.settings.DumpSlowRequests, info, raw, res)
+	appendDump(h.settings.DumpSlowRequests, info, raw, &res)
 }
 
 // appendDump writes one JSONL record. Errors are ignored: observability must
 // never fail a solve. ponytail: no rotation, the file grows until disabled;
 // capture windows only, logrotate/truncate if it is left on.
-func appendDump(path string, info optimizer.SolveInfo, raw []byte, res optimizer.Result) {
+func appendDump(path string, info optimizer.SolveInfo, raw []byte, res *optimizer.Result) {
 	if dir := filepath.Dir(path); dir != "" {
 		_ = os.MkdirAll(dir, 0o755)
 	}
@@ -199,9 +209,11 @@ func appendDump(path string, info optimizer.SolveInfo, raw []byte, res optimizer
 		return
 	}
 	defer f.Close()
-	response, err := json.Marshal(res)
-	if err != nil {
-		response = nil
+	var response json.RawMessage
+	if res != nil {
+		if b, err := json.Marshal(res); err == nil {
+			response = b
+		}
 	}
 	_ = json.NewEncoder(f).Encode(struct {
 		Time     string          `json:"time"`

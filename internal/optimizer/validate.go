@@ -30,6 +30,10 @@ func (e *ValidationError) Error() string {
 	return e.Message + ": " + strings.Join(parts, "; ")
 }
 
+// maxStepEnergy is the openapi maximum on gt/ft, 100 MWh per step. Coefficients
+// far beyond it leave HiGHS without a solution, so they are rejected by field.
+const maxStepEnergy = 1e8
+
 var chargingStrategies = map[string]bool{
 	"none": true, "charge_before_export": true, "attenuate_demand_peaks": true,
 	"attenuate_feedin_peaks": true, "attenuate_grid_peaks": true,
@@ -87,6 +91,18 @@ func (in *Input) Validate() error {
 		add("eta_d", "must be in (0, 1]")
 	}
 
+	if u := in.Uncertainty; u != nil {
+		if u.FtDev < 0 || u.FtDev > 1 {
+			add("uncertainty.ft_dev", "must be in [0, 1]")
+		}
+		if u.GtDev < 0 || u.GtDev > 1 {
+			add("uncertainty.gt_dev", "must be in [0, 1]")
+		}
+		if u.Budget < 0 {
+			add("uncertainty.budget", "must be >= 0")
+		}
+	}
+
 	// Horizon. GT defines T; every series must be non-empty (minItems 1) and
 	// every other series must match GT's length.
 	t := len(in.Series.GT)
@@ -131,6 +147,11 @@ func (in *Input) Validate() error {
 	} {
 		if hasNegative(s.vals) {
 			add(s.key, "must be >= 0")
+		}
+		for i, v := range s.vals {
+			if v > maxStepEnergy {
+				add(fmt.Sprintf("%s.%d", s.key, i), fmt.Sprintf("must be <= %g", float64(maxStepEnergy)))
+			}
 		}
 	}
 
