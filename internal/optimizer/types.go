@@ -45,14 +45,23 @@ type Series struct {
 	PE []float64 `json:"p_E"`
 }
 
+// Uncertainty mirrors the optional Uncertainty block: forecast deviation the
+// schedule hedges against. Absent fields default to 0, which disables the hedge.
+type Uncertainty struct {
+	FtDev  float64 `json:"ft_dev"`
+	GtDev  float64 `json:"gt_dev"`
+	Budget float64 `json:"budget"`
+}
+
 // Input mirrors OptimizationInput.
 type Input struct {
-	Strategy  Strategy  `json:"strategy"`
-	Grid      Grid      `json:"grid"`
-	Batteries []Battery `json:"batteries"`
-	Series    Series    `json:"time_series"`
-	EtaC      *float64  `json:"eta_c"`
-	EtaD      *float64  `json:"eta_d"`
+	Strategy    Strategy     `json:"strategy"`
+	Grid        Grid         `json:"grid"`
+	Batteries   []Battery    `json:"batteries"`
+	Series      Series       `json:"time_series"`
+	Uncertainty *Uncertainty `json:"uncertainty"`
+	EtaC        *float64     `json:"eta_c"`
+	EtaD        *float64     `json:"eta_d"`
 }
 
 // BatteryResult mirrors BatteryResult.
@@ -97,11 +106,12 @@ func NewResult() Result {
 
 // Problem is the normalized, concrete view the model builder consumes.
 type Problem struct {
-	Strategy   Strategy
-	Grid       Grid // concrete; PmaxImp/PmaxExp/PrcPExcImp stay *float64 (nil = absent)
-	Batteries  []Bat
-	Series     Series
-	EtaC, EtaD float64
+	Strategy    Strategy
+	Grid        Grid // concrete; PmaxImp/PmaxExp/PrcPExcImp stay *float64 (nil = absent)
+	Batteries   []Bat
+	Series      Series
+	Uncertainty Uncertainty
+	EtaC, EtaD  float64
 }
 
 // Bat is one normalized battery. PDemand/SGoal are nil when absent.
@@ -130,6 +140,9 @@ func (in *Input) Normalize() (Problem, error) {
 	}
 	if in.EtaD != nil {
 		p.EtaD = *in.EtaD
+	}
+	if in.Uncertainty != nil {
+		p.Uncertainty = *in.Uncertainty
 	}
 	if p.Strategy.ChargingStrategy == "" {
 		p.Strategy.ChargingStrategy = "none"

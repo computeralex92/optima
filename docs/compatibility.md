@@ -12,6 +12,8 @@ Frozen 1:1 with upstream:
 - Paths and methods: `POST /optimize/charge-schedule`, `GET /optimize/health`,
   `POST /optimize/explain`, `POST /optimize/explain/feedback`.
 - Request/response JSON shape, field names and defaults.
+- The optional `uncertainty` block (`ft_dev`, `gt_dev`, `budget`) and the 100 MWh
+  per-step maximum on `gt`/`ft`.
 - The explain request, response, 400, 502, and 503 shapes.
 - The `status` enum: `Optimal, Feasible, Infeasible, Unbounded, Undefined, Not Solved`.
 - The error response shape.

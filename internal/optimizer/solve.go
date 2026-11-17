@@ -74,12 +74,19 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 		// The probe is a shortcut, not the answer: a failed or truncated probe
 		// must not take the request down with it. A usable incumbent is kept as
 		// the fallback in case the split finds nothing.
-		if err == nil && mo.retain(psol) {
-			if psol.Status == highs.ModelStatusOptimal {
-				mo.path = "joint"
-				return mo.finishJoint(psol, deadline, s)
+		if err == nil {
+			// an infeasible model stays infeasible on the split, which would only
+			// spend the cost stage on it
+			if psol.Status == highs.ModelStatusInfeasible && !psol.HasSolution() {
+				return mo.assemble(nil, "Infeasible"), nil
 			}
-			probeSol = psol
+			if mo.retain(psol) {
+				if psol.Status == highs.ModelStatusOptimal {
+					mo.path = "joint"
+					return mo.finishJoint(psol, deadline, s)
+				}
+				probeSol = psol
+			}
 		}
 	}
 
@@ -107,7 +114,10 @@ func (mo *model) run(s settings.Settings) (Result, error) {
 
 	// The deciding status starts with the cost stage and is superseded whenever a
 	// later stage retains its solution (spec 6.1: the last retained stage decides).
+	// The cost stage's proof is tracked separately: a tie break that proves its
+	// own objective under the cost bound never proves that bound.
 	status := sol.Status
+	mo.costProven = sol.Status == highs.ModelStatusOptimal
 
 	// Pin the achieved cost so later stages cannot trade it away, allowing the
 	// preference and continuity stages to spend up to OPTIMIZER_PREFERENCE_BUDGET
@@ -355,7 +365,11 @@ func (mo *model) finalizeStatus(sol *highs.Solution, st highs.ModelStatus) Resul
 	if !mo.safetyCheck(sol) {
 		return mo.assemble(nil, "Not Solved")
 	}
-	return mo.assemble(sol, mapStatus(st, true))
+	status := mapStatus(st, true)
+	if status == "Optimal" && !mo.costProven {
+		status = "Feasible"
+	}
+	return mo.assemble(sol, status)
 }
 
 // retain reports whether a later stage's solution may replace the incumbent.

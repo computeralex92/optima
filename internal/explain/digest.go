@@ -253,9 +253,14 @@ func batteryLine(b optimizer.Battery, detail BatteryDetail, i int, labels []stri
 	if detail.Type == "vehicle" {
 		kind = "vehicle"
 	}
+	name := detail.Name
+	// untitled ui-configured devices are named db:<id>
+	if strings.HasPrefix(name, "db:") {
+		name = fmt.Sprintf("%s with id %s", kind, strings.TrimPrefix(name, "db:"))
+	}
 	title := detail.Title
 	if title == "" {
-		title = detail.Name
+		title = name
 	}
 	if title == "" {
 		title = fmt.Sprintf("%s %d", kind, i+1)
