@@ -26,7 +26,7 @@ func TestCompleteGenericRequest(t *testing.T) {
 		if body["model"] != "deepseek-chat" {
 			t.Errorf("model = %v", body["model"])
 		}
-		if body["max_tokens"] != float64(1500) {
+		if body["max_tokens"] != float64(8192) {
 			t.Errorf("max_tokens = %v", body["max_tokens"])
 		}
 		if _, ok := body["prompt_cache_retention"]; ok {
