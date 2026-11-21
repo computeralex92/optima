@@ -78,7 +78,10 @@ func (c *Client) Complete(ctx context.Context, system, user string) (string, Usa
 		body.ReasoningEffort = "low"
 		body.PromptCacheRetention = "24h"
 	} else {
-		body.MaxTokens = 1500
+		// Reasoning models count hidden reasoning against this cap: 1500 left
+		// deepseek-flash with an empty answer (finish_reason "length"). 8192 is
+		// the model's maximum and leaves room for reasoning plus the answer.
+		body.MaxTokens = 8192
 	}
 
 	raw, err := json.Marshal(body)
