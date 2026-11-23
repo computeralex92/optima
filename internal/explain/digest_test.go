@@ -200,6 +200,26 @@ func TestDigestNamesAnUntitledDevice(t *testing.T) {
 	}
 }
 
+func TestDigestOmitsUnknownChargeLevel(t *testing.T) {
+	in := testInput()
+	in.Details.BatteryDetails[0] = BatteryDetail{Title: "Carport", Type: "vehicle", Capacity: 10, SocUnknown: true}
+	in.Req.Batteries[0].SGoal = []float64{0, 0, 8000, 0, 0}
+	text := Digest(in)
+
+	for _, want := range []string{
+		"charge level unknown, charges 2.5 kWh in this plan",
+		"charging goal 3.0 kWh more by today 10:45",
+		"today 11:00 | 60 | 20.0 | 10.0 | 2.0 | 1.0 | 0.0/1.0 | 0.0/0.0/-",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("digest missing %q: %s", want, text)
+		}
+	}
+	if strings.Contains(text, "now 50%") {
+		t.Errorf("digest names an unknown charge level: %s", text)
+	}
+}
+
 func TestSystemPrompt(t *testing.T) {
 	for _, want := range []string{
 		"You explain an energy plan",
@@ -208,6 +228,8 @@ func TestSystemPrompt(t *testing.T) {
 		"import in the cheapest quarter-hours",
 		"cannot discharge into the grid",
 		"A minimum charge power",
+		"A goal after the end of the plan",
+		"unknown charge level shows -",
 	} {
 		if !strings.Contains(SystemPrompt, want) {
 			t.Errorf("prompt missing %q", want)

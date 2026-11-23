@@ -91,6 +91,27 @@ func (in *Input) Validate() error {
 		add("eta_d", "must be in (0, 1]")
 	}
 
+	for i, c := range in.Circuits {
+		prefix := fmt.Sprintf("circuits.%d.", i)
+		if c.PMax <= 0 {
+			add(prefix+"p_max", "must be > 0")
+		}
+		if len(c.Batteries) == 0 {
+			add(prefix+"batteries", "[] is too short")
+		}
+		seen := map[int]bool{}
+		for _, idx := range c.Batteries {
+			if idx < 0 || idx >= len(in.Batteries) {
+				add(prefix+"batteries", fmt.Sprintf("battery index %d out of range", idx))
+				continue
+			}
+			if seen[idx] {
+				add(prefix+"batteries", "must be unique")
+			}
+			seen[idx] = true
+		}
+	}
+
 	if u := in.Uncertainty; u != nil {
 		if u.FtDev < 0 || u.FtDev > 1 {
 			add("uncertainty.ft_dev", "must be in [0, 1]")
