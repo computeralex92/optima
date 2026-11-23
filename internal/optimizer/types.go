@@ -53,6 +53,13 @@ type Uncertainty struct {
 	Budget float64 `json:"budget"`
 }
 
+// Circuit mirrors CircuitConfig: an optional cap on the summed charge power of
+// the batteries it lists, in W. Discharging is not counted.
+type Circuit struct {
+	PMax      float64 `json:"p_max"`
+	Batteries []int   `json:"batteries"`
+}
+
 // Input mirrors OptimizationInput.
 type Input struct {
 	Strategy    Strategy     `json:"strategy"`
@@ -60,6 +67,7 @@ type Input struct {
 	Batteries   []Battery    `json:"batteries"`
 	Series      Series       `json:"time_series"`
 	Uncertainty *Uncertainty `json:"uncertainty"`
+	Circuits    []Circuit    `json:"circuits"`
 	EtaC        *float64     `json:"eta_c"`
 	EtaD        *float64     `json:"eta_d"`
 }
@@ -111,6 +119,7 @@ type Problem struct {
 	Batteries   []Bat
 	Series      Series
 	Uncertainty Uncertainty
+	Circuits    []Circuit
 	EtaC, EtaD  float64
 }
 
@@ -144,6 +153,7 @@ func (in *Input) Normalize() (Problem, error) {
 	if in.Uncertainty != nil {
 		p.Uncertainty = *in.Uncertainty
 	}
+	p.Circuits = in.Circuits
 	if p.Strategy.ChargingStrategy == "" {
 		p.Strategy.ChargingStrategy = "none"
 	}

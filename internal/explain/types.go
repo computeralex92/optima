@@ -19,12 +19,14 @@ type Details struct {
 	DemandDetails  []DemandDetail  `json:"demandDetails"`
 }
 
-// BatteryDetail names and sizes one battery or vehicle.
+// BatteryDetail names and sizes one battery or vehicle. SocUnknown marks a
+// vehicle whose charge level evcc does not know.
 type BatteryDetail struct {
-	Name     string  `json:"name"`
-	Title    string  `json:"title"`
-	Type     string  `json:"type"`
-	Capacity float64 `json:"capacity"` // kWh
+	Name       string  `json:"name"`
+	Title      string  `json:"title"`
+	Type       string  `json:"type"`
+	Capacity   float64 `json:"capacity"` // kWh
+	SocUnknown bool    `json:"socUnknown"`
 }
 
 // DemandDetail describes a household load the plan includes.

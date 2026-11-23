@@ -502,6 +502,15 @@ func buildModel(p Problem) *model {
 			}
 		}
 
+		// Without discharge the room only shrinks, so a rest below c_min fills
+		// in one slot; the charger stops once the battery is full, that slot may
+		// charge less than c_min. A larger rest splits into slots of c_min to
+		// c_max each, so the constant bound suffices.
+		restToFill := math.Inf(1)
+		if b.DMax <= 0 {
+			restToFill = math.Max(b.SMax-b.SInitial, 0) / p.EtaC
+		}
+
 		// 8. charge-demand gating (#19); 9. c_min gating
 		if b.PDemand != nil {
 			for t := 0; t < T; t++ {
@@ -528,7 +537,7 @@ func buildModel(p Problem) *model {
 					mo.addSingle(mo.zDem[i][t], 1, 0)
 				}
 				if b.CMin > 0 {
-					cm := b.CMin * mo.h[t]
+					cm := math.Min(b.CMin*mo.h[t], restToFill)
 					var r1 coefRow
 					r1.add(mo.c[i][t], 1)
 					r1.add(mo.zDem[i][t], cm)
@@ -542,7 +551,7 @@ func buildModel(p Problem) *model {
 			}
 		} else if b.CMin > 0 {
 			for t := 0; t < T; t++ {
-				cm := b.CMin * mo.h[t]
+				cm := math.Min(b.CMin*mo.h[t], restToFill)
 				var r1 coefRow
 				r1.add(mo.c[i][t], 1)
 				r1.add(mo.zC[i][t], -cm)
@@ -606,6 +615,18 @@ func buildModel(p Problem) *model {
 		}
 	}
 
+	// 16. circuit charge-power caps: the summed charge of the listed batteries.
+	// Discharging is not counted, and each entry is enforced independently.
+	for _, c := range p.Circuits {
+		for t := 0; t < T; t++ {
+			var r coefRow
+			for _, i := range c.Batteries {
+				r.add(mo.c[i][t], 1)
+			}
+			mo.addLe(r, c.PMax*mo.h[t])
+		}
+	}
+
 	// --- stage coefficient rows (side products) ---
 
 	for t := 0; t < T; t++ {
@@ -666,7 +687,9 @@ func buildModel(p Problem) *model {
 				stored = math.Max(stored, b.PA)
 			}
 		}
-		reservePrice := math.Max(math.Max(maxFloat(p.Series.PE), stored/p.EtaD), 0) * (1 - hedgeTieDiscount)
+		// No less than the cheapest import, so on a flat tariff holding the
+		// reserve ties with importing and the preferences decide.
+		reservePrice := math.Max(math.Max(maxFloat(p.Series.PE), stored/p.EtaD), math.Max(minFloat(p.Series.PN), 0)) * (1 - hedgeTieDiscount)
 		for _, col := range mo.uRes {
 			mo.costRow = append(mo.costRow, coef{col, -reservePrice})
 		}

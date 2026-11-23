@@ -196,6 +196,22 @@ func TestReserveDoesNotGrowWithTheDaysPlanned(t *testing.T) {
 	}
 }
 
+// TestHedgeSpendsReserveFirstOnFlatTariff pins the vendored case: stored energy
+// is valued just below the import it replaces, which must not make holding it
+// the cheaper recourse.
+func TestHedgeSpendsReserveFirstOnFlatTariff(t *testing.T) {
+	in := loadCase(t, "../../test_cases/029-hedge-spends-reserve-on-flat-tariff.json")
+	res := solveUncertainty(t, in)
+	sMin := floatOr(in.Batteries[0].SMin, 0)
+	lowest := math.Inf(1)
+	for _, v := range res.Batteries[0].StateOfCharge[:12] {
+		lowest = math.Min(lowest, v)
+	}
+	if math.Abs(lowest-sMin) > 1 {
+		t.Fatalf("lowest SOC %v, want s_min %v", lowest, sMin)
+	}
+}
+
 // TestStoredCaseSolvesWithABudget checks the hedge on a real vendored request.
 func TestStoredCaseSolvesWithABudget(t *testing.T) {
 	in := loadCase(t, "../../test_cases/012-early-charging-not-perfect.json")

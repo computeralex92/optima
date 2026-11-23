@@ -44,11 +44,19 @@ func Digest(in Input) string {
 	titles := make([]string, 0, len(req.Batteries))
 	devices := make([]string, 0, len(req.Batteries))
 	capacities := make([]float64, 0, len(req.Batteries))
+	unknown := make([]bool, 0, len(req.Batteries))
 	for i, b := range req.Batteries {
 		detail := batteryDetailAt(details.BatteryDetails, i)
 		capacity := capacityWH(b, detail)
 		capacities = append(capacities, capacity)
-		title, line := batteryLine(b, detail, i, labels, capacity)
+		unknown = append(unknown, detail.SocUnknown)
+		charged := 0.0
+		if i < len(res.Batteries) {
+			for _, v := range res.Batteries[i].ChargingPower {
+				charged += v
+			}
+		}
+		title, line := batteryLine(b, detail, i, labels, capacity, charged)
 		titles = append(titles, title)
 		devices = append(devices, line)
 	}
@@ -132,10 +140,14 @@ func Digest(in Input) string {
 		}
 		for j := 0; j < len(res.Batteries) && j < len(capacities); j++ {
 			battery := res.Batteries[j]
-			row = append(row, fmt.Sprintf("%s/%s/%.0f",
+			level := "-"
+			if !unknown[j] {
+				level = fmt.Sprintf("%.0f", math.Round(at(battery.StateOfCharge, i)/capacities[j]*100))
+			}
+			row = append(row, fmt.Sprintf("%s/%s/%s",
 				kwh(at(battery.ChargingPower, i)),
 				kwh(at(battery.DischargingPower, i)),
-				math.Round(at(battery.StateOfCharge, i)/capacities[j]*100)))
+				level))
 		}
 		lines = append(lines, strings.Join(row, " | "))
 	}
@@ -248,7 +260,7 @@ func capacityWH(b optimizer.Battery, detail BatteryDetail) float64 {
 	return 1
 }
 
-func batteryLine(b optimizer.Battery, detail BatteryDetail, i int, labels []string, capacity float64) (string, string) {
+func batteryLine(b optimizer.Battery, detail BatteryDetail, i int, labels []string, capacity, charged float64) (string, string) {
 	kind := "home battery"
 	if detail.Type == "vehicle" {
 		kind = "vehicle"
@@ -270,10 +282,15 @@ func batteryLine(b optimizer.Battery, detail BatteryDetail, i int, labels []stri
 		return fmt.Sprintf("%.0f%%", math.Round(wh/capacity*100))
 	}
 	sInitial := floatOr(b.SInitial, 0)
-	facts := []string{
-		fmt.Sprintf("capacity %.1f kWh", capacity/1000),
-		fmt.Sprintf("now %s (%.1f kWh)", pct(sInitial), sInitial/1000),
-		fmt.Sprintf("kept between %s and %s", pct(floatOr(b.SMin, 0)), pct(floatOr(b.SMax, 0))),
+	facts := []string{fmt.Sprintf("capacity %.1f kWh", capacity/1000)}
+	if detail.SocUnknown {
+		// evcc sends the energy charged this session as state: no level to name
+		facts = append(facts, fmt.Sprintf("charge level unknown, charges %s kWh in this plan", kwh(charged)))
+	} else {
+		facts = append(facts,
+			fmt.Sprintf("now %s (%.1f kWh)", pct(sInitial), sInitial/1000),
+			fmt.Sprintf("kept between %s and %s", pct(floatOr(b.SMin, 0)), pct(floatOr(b.SMax, 0))),
+		)
 	}
 	charge := fmt.Sprintf("charges up to %.1f kW", floatOr(b.CMax, 0)/1000)
 	if floatOr(b.CMin, 0) > 0 {
@@ -302,7 +319,11 @@ func batteryLine(b optimizer.Battery, detail BatteryDetail, i int, labels []stri
 	}
 	for t, goal := range b.SGoal {
 		if goal > 0 && t+1 < len(labels) {
-			facts = append(facts, fmt.Sprintf("charging goal %s by %s", pct(goal), labels[t+1]))
+			target := pct(goal)
+			if detail.SocUnknown {
+				target = fmt.Sprintf("%s kWh more", kwh(goal-sInitial))
+			}
+			facts = append(facts, fmt.Sprintf("charging goal %s by %s", target, labels[t+1]))
 		}
 	}
 	for _, run := range ranges(b.PDemand, labels) {
